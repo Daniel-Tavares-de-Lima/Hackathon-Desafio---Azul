@@ -6,7 +6,7 @@ else
 PY := .venv/bin/python
 endif
 
-.PHONY: all venv ingest ingest-tarifas ingest-vra
+.PHONY: all venv ingest ingest-tarifas ingest-vra gold
 
 all: ingest
 
@@ -23,3 +23,6 @@ ingest-tarifas: $(PY)
 
 ingest-vra: $(PY)
 	$(PY) -I pipelines/ingest_anac.py vra
+
+gold: $(PY)
+	$(PY) -I pipelines/build_gold.py

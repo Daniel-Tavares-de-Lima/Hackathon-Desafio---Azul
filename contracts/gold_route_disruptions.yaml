@@ -1,0 +1,29 @@
+table: gold.route_disruptions
+layer: gold
+version: 1
+description: >
+  Ameaça A (ATRASO). Voos programados, realizados e cancelados e percentual com atraso de partida
+  acima de 30 minutos, por rota direcional, companhia e mês. Só passageiro regular programado.
+produced_by: pipelines/build_gold.py (pipelines/sql/route_disruptions.sql)
+sources: [silver.anac_vra]
+storage:
+  format: parquet (zstd)
+  path: data/gold/route_disruptions/data.parquet
+grain: [ano_mes, origem_icao, destino_icao, empresa_icao]
+filters:
+  - tipo_linha = 'N' e codigo_di = '0' (PREMISSAS P-02, P-03)
+  - situacao_voo em (REALIZADO, CANCELADO)
+columns:
+  - {name: ano_mes, type: VARCHAR(7), nullable: false, description: "Mês de referência 'AAAA-MM' (mês do arquivo VRA)"}
+  - {name: origem_icao, type: VARCHAR(4), nullable: false, description: ICAO de origem}
+  - {name: destino_icao, type: VARCHAR(4), nullable: false, description: ICAO de destino}
+  - {name: empresa_icao, type: VARCHAR(3), nullable: false, description: Sigla ICAO da companhia}
+  - {name: voos_previstos, type: BIGINT, nullable: false, description: Etapas programadas (realizadas + canceladas)}
+  - {name: voos_realizados, type: BIGINT, nullable: false, description: Etapas com situação REALIZADO}
+  - {name: voos_cancelados, type: BIGINT, nullable: false, description: Etapas com situação CANCELADO}
+  - {name: voos_atraso_30, type: BIGINT, nullable: false, description: Realizados com atraso de partida > 30 min}
+  - {name: pct_atraso_30, type: "DECIMAL(6,2)", nullable: true, unit: "%", description: "100 x voos_atraso_30 / voos_realizados (nulo se não há realizados)"}
+  - {name: pct_cancelado, type: "DECIMAL(6,2)", nullable: false, unit: "%", description: 100 x voos_cancelados / voos_previstos}
+quality:
+  - voos_realizados + voos_cancelados = voos_previstos
+  - grão único

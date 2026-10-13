@@ -31,3 +31,13 @@
   vírgula, o ponto é o decimal. Nenhuma tarifa ficou nula na conversão.
 - O arquivo de 2026-05 foi publicado como `202605 (1).csv`; a descoberta é feita pela listagem do diretório.
 - Silver mantém todas as empresas (TAM, AZU, GLO + regionais ABJ, CQB, PTB); o recorte AZU/GLO/TAM é feito na gold.
+
+## P-05 · Regras das tabelas gold de ameaça (registrada em 2026-10-12)
+- Rota é direcional (origem→destino); mês é o mês do arquivo ANAC (`ano_mes`), não o da partida.
+- **Atraso (A):** partida_real − partida_prevista > 30 min, sobre voos REALIZADOS, só `tipo_linha='N'` e `codigo_di='0'` (P-02, P-03). % de atraso = atrasados / realizados.
+- **Saída total (B):** Azul com voos realizados antes dos últimos 3 meses e zero em m-2..m. A flag persiste nos meses seguintes (estado "como visto no mês"); a contagem de rotas marcadas usa o último mês da janela (2026-08).
+- **Redução (B):** voos em m-2..m ≤ 70% dos voos nos mesmos 3 meses do ano anterior (base > 0). Compara janelas de 3 meses, não o mês isolado, para não marcar sazonalidade de um mês só. Sem piso de volume mínimo: rotas de baixa frequência oscilam; filtrar por `voos_3m_ano_anterior` no consumo.
+- **Voo da Azul:** só `empresa_icao='AZU'`; codeshare operado pela Azul conta como voo da Azul; Azul Conecta e outras regionais não entram.
+- **Entrada de concorrente (C):** companhia ≠ AZU com venda no mês e nenhuma nos 3 meses anteriores; só avaliável a partir do 4º mês da janela. A base de tarifas da ANAC inclui venda esporádica de regionais; sem piso de assentos.
+- **Queda de tarifa (C):** tarifa média ponderada do mês ≤ 85% da média ponderada (por assentos) dos 3 meses anteriores, exigindo venda nos 3. A "queda" é contra o histórico do próprio concorrente, não contra a Azul.
+- Fonte que calibra: ANAC VRA e Tarifas Aéreas Domésticas (URLs em P-01); limiares 30 min, 30%, 15% e 3 meses vêm da especificação de produto do ÓRBITA.

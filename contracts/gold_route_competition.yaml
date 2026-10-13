@@ -1,0 +1,30 @@
+table: gold.route_competition
+layer: gold
+version: 1
+description: >
+  Ameaça C (ESCUDO DE ROTA). Por rota direcional, mês e companhia: assentos vendidos, participação
+  nos assentos da rota, tarifa média ponderada por assentos e flags de entrada de concorrente e
+  queda de tarifa. Só rotas onde a Azul vendeu alguma vez na janela; só linhas com venda no mês.
+produced_by: pipelines/build_gold.py (pipelines/sql/route_competition.sql)
+sources: [silver.anac_tarifas]
+storage:
+  format: parquet (zstd)
+  path: data/gold/route_competition/data.parquet
+grain: [ano_mes, origem_icao, destino_icao, empresa_icao]
+filters:
+  - assentos > 0 e tarifa > 0
+columns:
+  - {name: ano_mes, type: VARCHAR(7), nullable: false, description: "Mês de referência 'AAAA-MM'"}
+  - {name: origem_icao, type: VARCHAR(4), nullable: false, description: ICAO de origem}
+  - {name: destino_icao, type: VARCHAR(4), nullable: false, description: ICAO de destino}
+  - {name: empresa_icao, type: VARCHAR(3), nullable: false, description: Sigla ICAO da companhia (AZU, GLO, TAM e regionais)}
+  - {name: assentos_vendidos, type: BIGINT, nullable: false, description: Assentos comercializados pela companhia na rota no mês}
+  - {name: participacao_assentos_pct, type: "DECIMAL(6,2)", nullable: false, unit: "%", description: Parcela da companhia nos assentos vendidos da rota no mês}
+  - {name: tarifa_media_ponderada, type: "DECIMAL(12,2)", nullable: false, unit: BRL, description: "Soma(tarifa x assentos) / soma(assentos) no mês"}
+  - {name: tarifa_media_3m_anteriores, type: "DECIMAL(12,2)", nullable: true, unit: BRL, description: Mesma média ponderada nos 3 meses anteriores; nulo se a companhia não vendeu neles}
+  - {name: variacao_tarifa_pct, type: "DECIMAL(8,2)", nullable: true, unit: "%", description: "Variação da tarifa do mês vs tarifa_media_3m_anteriores (negativo = queda)"}
+  - {name: entrada_concorrente, type: BOOLEAN, nullable: false, description: Companhia != AZU vende no mês e não vendeu nos 3 meses anteriores (falso nos 3 primeiros meses da janela)}
+  - {name: queda_tarifa, type: BOOLEAN, nullable: false, description: Companhia != AZU com venda nos 3 meses anteriores e tarifa do mês <= 85% da média desses meses}
+quality:
+  - soma de participacao_assentos_pct por rota/mês = 100 (tolerância 0,5)
+  - grão único
