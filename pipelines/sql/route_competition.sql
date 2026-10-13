@@ -1,14 +1,13 @@
 -- gold.route_competition (ameaca C): por rota, mes e companhia, assentos vendidos, share e tarifa media ponderada.
 -- Escopo: rotas onde a Azul vendeu alguma vez na janela. Grade densa por (rota, companhia) para olhar os 3 meses anteriores.
 --   entrada_concorrente: companhia != AZU vende no mes e nao vendeu nos 3 meses anteriores (exige 3 meses anteriores na janela).
---   queda_tarifa: concorrente (!= AZU) com venda nos 3 meses anteriores, variacao propria < 0 e variacao >= 15 pontos
---     percentuais abaixo da variacao da Azul no mesmo par_rota e mes (dois sentidos somados), alem de:
---       materialidade: concorrente e Azul com >= 1.000 assentos no par no mes (dois sentidos somados);
---       referencia estavel: variacao da Azul entre -30% e +30%;
---       persistencia: condicao completa valendo no mes e no mes imediatamente anterior, mesma rota e mesmo concorrente.
---     Azul e concorrente caindo juntos = sazonalidade, nao marca. Azul sem venda no mes ou nos 3 anteriores = nao marca.
---   revisar_amostra: tudo acima vale (materialidade e persistencia incluidas) menos a referencia estavel da Azul
---     (variacao da Azul fora de -30%..+30% em algum dos 2 meses): nao marca queda, pede revisao manual.
+--   queda_tarifa: referencia ANUAL, no par_rota (dois sentidos somados): tarifa media ponderada do mes vs mesmo mes do ano
+--     anterior, para o concorrente e para a Azul. Marca quando, no concorrente != AZU:
+--       variacao anual do concorrente < 0 e >= 15 pontos percentuais abaixo da variacao anual da Azul;
+--       materialidade: concorrente e Azul com >= 1.000 assentos no par no mes e no mesmo mes do ano anterior;
+--       referencia estavel: variacao anual da Azul entre -30% e +30%;
+--       persistencia: condicao completa valendo em m e em m-1 (mesmo par e mesmo concorrente).
+--   revisar_amostra: mesma logica, mas a variacao anual da Azul fora de -30%..+30% em m ou m-1; nao marca queda.
 -- SQL padrao: roda em DuckDB e Snowflake.
 CREATE OR REPLACE TABLE gold.route_competition AS
 WITH meses AS (
@@ -47,26 +46,8 @@ jan AS (
                            ROWS BETWEEN 3 PRECEDING AND 1 PRECEDING) AS receita_3m_ant,
         COUNT(*) OVER (PARTITION BY origem_icao, destino_icao, empresa_icao ORDER BY idx
                        ROWS BETWEEN 3 PRECEDING AND 1 PRECEDING) AS meses_ant,
-        SUM(CASE WHEN assentos_vendidos > 0 THEN 1 ELSE 0 END)
-            OVER (PARTITION BY origem_icao, destino_icao, empresa_icao ORDER BY idx
-                  ROWS BETWEEN 3 PRECEDING AND 1 PRECEDING) AS meses_ant_com_venda,
         SUM(assentos_vendidos) OVER (PARTITION BY origem_icao, destino_icao, ano_mes) AS assentos_rota
     FROM grade g
-),
--- referencia da Azul por par (os dois sentidos somados), mesma definicao de variacao
-azul_par AS (
-    SELECT LEAST(origem_icao, destino_icao) || '-' || GREATEST(origem_icao, destino_icao) AS par_rota,
-           idx, ano_mes, SUM(assentos_vendidos) AS assentos, SUM(receita) AS receita,
-           SUM(assentos_3m_ant) AS assentos_ant, SUM(receita_3m_ant) AS receita_ant
-    FROM jan
-    WHERE empresa_icao = 'AZU'
-    GROUP BY LEAST(origem_icao, destino_icao) || '-' || GREATEST(origem_icao, destino_icao), idx, ano_mes
-),
-azul_var AS (
-    SELECT par_rota, ano_mes, assentos AS assentos_azul_par,
-           CASE WHEN assentos > 0 AND assentos_ant > 0
-                THEN 100.0 * (receita / assentos) / (receita_ant / assentos_ant) - 100.0 END AS variacao_azul
-    FROM azul_par
 ),
 calc AS (
     SELECT j.*,
@@ -75,39 +56,52 @@ calc AS (
     FROM jan j
     WHERE j.assentos_vendidos > 0
 ),
-base AS (
-    SELECT c.*, a.variacao_azul, a.assentos_azul_par,
-        SUM(c.assentos_vendidos) OVER (PARTITION BY c.par_rota, c.empresa_icao, c.ano_mes) AS assentos_conc_par
-    FROM calc c
-    LEFT JOIN azul_var a ON a.par_rota = c.par_rota AND a.ano_mes = c.ano_mes
+-- nivel do par: companhia x par_rota x mes (dois sentidos somados) e o mesmo mes do ano anterior
+pv AS (
+    SELECT par_rota, empresa_icao, ano_mes, idx, SUM(assentos_vendidos) AS assentos, SUM(receita) AS receita
+    FROM calc
+    GROUP BY par_rota, empresa_icao, ano_mes, idx
 ),
-cond AS (
-    SELECT b.*,
-        -- regras do mes, sem referencia estavel nem persistencia
-        COALESCE(b.empresa_icao <> 'AZU' AND b.meses_ant_com_venda = 3 AND b.variacao_conc < 0
-         AND b.variacao_azul IS NOT NULL AND b.variacao_conc - b.variacao_azul <= -15
-         AND b.assentos_conc_par >= 1000 AND b.assentos_azul_par >= 1000, FALSE) AS cond_nucleo,
-        COALESCE(b.variacao_azul BETWEEN -30 AND 30, FALSE) AS azul_estavel
-    FROM base b
+pv_anual AS (
+    SELECT c.par_rota, c.empresa_icao, c.ano_mes, c.idx, c.assentos, a.assentos AS assentos_ano_ant,
+           100.0 * ((c.receita / c.assentos) / (a.receita / a.assentos) - 1) AS variacao_anual
+    FROM pv c
+    LEFT JOIN pv a ON a.par_rota = c.par_rota AND a.empresa_icao = c.empresa_icao AND a.idx = c.idx - 12
+),
+par_cond AS (
+    SELECT p.par_rota, p.empresa_icao, p.ano_mes, p.idx,
+           p.variacao_anual AS variacao_anual_conc, z.variacao_anual AS variacao_anual_azul,
+           -- regras do mes, sem referencia estavel nem persistencia
+           COALESCE(p.empresa_icao <> 'AZU'
+                    AND p.variacao_anual < 0 AND z.variacao_anual IS NOT NULL
+                    AND p.variacao_anual - z.variacao_anual <= -15
+                    AND p.assentos >= 1000 AND p.assentos_ano_ant >= 1000
+                    AND z.assentos >= 1000 AND z.assentos_ano_ant >= 1000, FALSE) AS cond_nucleo,
+           COALESCE(z.variacao_anual BETWEEN -30 AND 30, FALSE) AS azul_estavel
+    FROM pv_anual p
+    LEFT JOIN pv_anual z ON z.par_rota = p.par_rota AND z.empresa_icao = 'AZU' AND z.ano_mes = p.ano_mes
 ),
 persist AS (
     SELECT d.*,
         LAG(d.idx) OVER w AS idx_ant,
         LAG(d.cond_nucleo) OVER w AS nucleo_ant,
         LAG(d.azul_estavel) OVER w AS estavel_ant
-    FROM cond d
-    WINDOW w AS (PARTITION BY d.origem_icao, d.destino_icao, d.empresa_icao ORDER BY d.idx)
+    FROM par_cond d
+    WINDOW w AS (PARTITION BY d.par_rota, d.empresa_icao ORDER BY d.idx)
 )
 SELECT
-    ano_mes, origem_icao, destino_icao, par_rota, empresa_icao,
-    assentos_vendidos,
-    ROUND(100.0 * assentos_vendidos / assentos_rota, 2) AS participacao_assentos_pct,
-    ROUND(receita / assentos_vendidos, 2) AS tarifa_media_ponderada,
-    ROUND(receita_3m_ant / NULLIF(assentos_3m_ant, 0), 2) AS tarifa_media_3m_anteriores,
-    ROUND(variacao_conc, 2) AS variacao_tarifa_pct,
-    ROUND(variacao_azul, 2) AS variacao_tarifa_azul_pct,
-    CASE WHEN empresa_icao <> 'AZU' THEN ROUND(variacao_conc - variacao_azul, 2) END AS diferenca_queda_pp,
-    (empresa_icao <> 'AZU' AND meses_ant = 3 AND assentos_3m_ant = 0) AS entrada_concorrente,
-    COALESCE(cond_nucleo AND azul_estavel AND idx_ant = idx - 1 AND nucleo_ant AND estavel_ant, FALSE) AS queda_tarifa,
-    COALESCE(cond_nucleo AND idx_ant = idx - 1 AND nucleo_ant AND NOT (azul_estavel AND estavel_ant), FALSE) AS revisar_amostra
-FROM persist;
+    c.ano_mes, c.origem_icao, c.destino_icao, c.par_rota, c.empresa_icao,
+    c.assentos_vendidos,
+    ROUND(100.0 * c.assentos_vendidos / c.assentos_rota, 2) AS participacao_assentos_pct,
+    ROUND(c.receita / c.assentos_vendidos, 2) AS tarifa_media_ponderada,
+    ROUND(c.receita_3m_ant / NULLIF(c.assentos_3m_ant, 0), 2) AS tarifa_media_3m_anteriores,
+    ROUND(c.variacao_conc, 2) AS variacao_tarifa_pct,
+    ROUND(p.variacao_anual_conc, 2) AS variacao_anual_pct,
+    ROUND(p.variacao_anual_azul, 2) AS variacao_anual_azul_pct,
+    CASE WHEN c.empresa_icao <> 'AZU' THEN ROUND(p.variacao_anual_conc - p.variacao_anual_azul, 2) END AS diferenca_anual_pp,
+    (c.empresa_icao <> 'AZU' AND c.meses_ant = 3 AND c.assentos_3m_ant = 0) AS entrada_concorrente,
+    COALESCE(p.cond_nucleo AND p.azul_estavel AND p.idx_ant = p.idx - 1 AND p.nucleo_ant AND p.estavel_ant, FALSE) AS queda_tarifa,
+    COALESCE(p.cond_nucleo AND p.idx_ant = p.idx - 1 AND p.nucleo_ant
+             AND NOT (p.azul_estavel AND p.estavel_ant), FALSE) AS revisar_amostra
+FROM calc c
+JOIN persist p ON p.par_rota = c.par_rota AND p.empresa_icao = c.empresa_icao AND p.ano_mes = c.ano_mes;
