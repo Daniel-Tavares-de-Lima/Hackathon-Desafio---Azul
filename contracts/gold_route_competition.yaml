@@ -26,8 +26,10 @@ columns:
   - {name: variacao_tarifa_pct, type: "DECIMAL(8,2)", nullable: true, unit: "%", description: "Variação da tarifa do mês vs tarifa_media_3m_anteriores (negativo = queda)"}
   - {name: variacao_tarifa_azul_pct, type: "DECIMAL(8,2)", nullable: true, unit: "%", description: Variação da tarifa média ponderada da Azul no par_rota (dois sentidos somados) vs seus 3 meses anteriores; nulo sem venda da Azul no mês ou nos 3 anteriores}
   - {name: diferenca_queda_pp, type: "DECIMAL(8,2)", nullable: true, unit: pp, description: variacao_tarifa_pct do concorrente menos variacao_tarifa_azul_pct (negativo = concorrente caiu mais que a Azul); nulo para AZU}
-  - {name: queda_tarifa, type: BOOLEAN, nullable: false, description: Concorrente com venda nos 3 meses anteriores, variação própria < 0 e diferenca_queda_pp <= -15; queda junto com a Azul (sazonalidade) não marca}
+  - {name: queda_tarifa, type: BOOLEAN, nullable: false, description: "Concorrente != AZU com venda nos 3 meses anteriores, variação própria < 0 e diferenca_queda_pp <= -15, com: concorrente e Azul >= 1.000 assentos no par no mês; variação da Azul entre -30% e +30%; condição valendo no mês e no mês anterior (mesma rota e concorrente). Queda junto com a Azul (sazonalidade) não marca"}
+  - {name: revisar_amostra, type: BOOLEAN, nullable: false, description: "Cumpre materialidade, persistência e diferença de 15 pp, mas a variação da Azul saiu de -30%..+30% em algum dos 2 meses: não marca queda_tarifa, exige revisão manual; nunca verdadeira junto com queda_tarifa"}
   - {name: entrada_concorrente, type: BOOLEAN, nullable: false, description: Companhia != AZU vende no mês e não vendeu nos 3 meses anteriores (falso nos 3 primeiros meses da janela)}
 quality:
   - soma de participacao_assentos_pct por rota/mês = 100 (tolerância 0,5)
+  - queda_tarifa e revisar_amostra nunca são verdadeiras juntas e nunca nulas
   - grão único
