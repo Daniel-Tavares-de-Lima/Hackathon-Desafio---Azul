@@ -17,11 +17,15 @@ columns:
   - {name: ano_mes, type: VARCHAR(7), nullable: false, description: "Mês de referência 'AAAA-MM'"}
   - {name: origem_icao, type: VARCHAR(4), nullable: false, description: ICAO de origem}
   - {name: destino_icao, type: VARCHAR(4), nullable: false, description: ICAO de destino}
+  - {name: par_rota, type: VARCHAR(9), nullable: false, description: "Os dois aeroportos em ordem alfabética, 'SBBR-SBRF'; conta rotas sem duplicar por sentido"}
   - {name: voos_azul, type: BIGINT, nullable: false, description: Voos realizados da Azul no mês}
   - {name: voos_3m, type: BIGINT, nullable: false, description: Voos nos 3 meses m-2..m (a janela inicial pode ter menos de 3 meses de histórico)}
   - {name: voos_3m_ano_anterior, type: BIGINT, nullable: true, description: Voos nos mesmos 3 meses do ano anterior; nulo sem 12 meses de histórico}
   - {name: variacao_pct_queda_3m, type: "DECIMAL(7,2)", nullable: true, unit: "%", description: "100 x (ano anterior - atual) / ano anterior; positivo = queda; nulo se base zero/ausente"}
-  - {name: saida_total, type: BOOLEAN, nullable: false, description: Teve voos antes da janela de 3 meses e zero nos últimos 3 meses}
+  - {name: voos_par_3m, type: BIGINT, nullable: false, description: Voos da Azul nos 3 meses m-2..m somando os dois sentidos do par_rota}
+  - {name: voos_par_3m_ano_anterior, type: BIGINT, nullable: true, description: Mesma soma nos mesmos 3 meses do ano anterior; nulo sem 12 meses de histórico}
+  - {name: saida_total, type: BOOLEAN, nullable: false, description: "Nível do par (igual nos dois sentidos): >= 30 voos da Azul nos mesmos 3 meses do ano anterior e zero em m-2..m"}
+  - {name: mes_saida, type: VARCHAR(7), nullable: true, description: "Primeiro mês zerado do par (mês seguinte ao último voo da Azul), AAAA-MM; só preenchido quando saida_total"}
   - {name: reducao, type: BOOLEAN, nullable: false, description: Queda >= 30% vs mesmos 3 meses do ano anterior (base > 0, voos atuais > 0); exclusiva de saida_total}
 quality:
   - saida_total e reducao nunca são verdadeiras juntas
