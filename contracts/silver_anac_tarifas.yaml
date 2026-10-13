@@ -1,0 +1,31 @@
+table: silver.anac_tarifas
+layer: silver
+version: 1
+description: >
+  Microdados de Tarifas Aereas Domesticas da ANAC (bilhetes comercializados, agregados por
+  empresa, rota, tarifa). Uma linha = um valor de tarifa praticado por empresa/rota/mes com a
+  quantidade de assentos vendidos a esse valor. Insumo da ameaca C (escudo de rota).
+source:
+  publisher: ANAC
+  url: https://sas.anac.gov.br/sas/tarifadomestica/{ano}/{AAAAMM}.csv
+  produced_by: pipelines/ingest_anac.py tarifas
+storage:
+  format: parquet (zstd)
+  path: data/silver/anac_tarifas/ano_mes=AAAA-MM/data.parquet
+  partition_by: [ano_mes]   # coluna de particao hive (VARCHAR 'AAAA-MM'), nao gravada dentro do arquivo
+grain: [mes_referencia, empresa_icao, origem_icao, destino_icao, tarifa]  # nao unico: a ANAC pode repetir linhas
+filters:
+  - origem_icao e destino_icao com prefixo ICAO brasileiro (SB, SD, SI, SJ, SN, SS, SW)
+columns:
+  - {name: ano, type: SMALLINT, nullable: false, description: Ano de referencia da venda}
+  - {name: mes, type: SMALLINT, nullable: false, description: Mes de referencia da venda (1-12)}
+  - {name: mes_referencia, type: DATE, nullable: false, description: Primeiro dia do mes de referencia}
+  - {name: empresa_icao, type: VARCHAR(3), nullable: false, description: "Sigla ICAO da empresa (AZU=Azul, GLO=Gol, TAM=LATAM)"}
+  - {name: origem_icao, type: VARCHAR(4), nullable: false, description: ICAO do aeroporto de origem}
+  - {name: destino_icao, type: VARCHAR(4), nullable: false, description: ICAO do aeroporto de destino}
+  - {name: tarifa, type: "DECIMAL(12,2)", nullable: false, unit: BRL, description: Valor da tarifa aerea comercializada (sem taxas de embarque)}
+  - {name: assentos, type: INTEGER, nullable: false, description: Quantidade de assentos comercializados a essa tarifa}
+  - {name: ano_mes, type: VARCHAR(7), nullable: false, description: "Particao 'AAAA-MM' (hive)"}
+quality:
+  - tarifa > 0
+  - assentos > 0

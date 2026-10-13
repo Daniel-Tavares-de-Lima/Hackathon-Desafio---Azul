@@ -1,0 +1,8 @@
+.venv/
+.env
+data/bronze/anac_*/
+data/silver/
+data/gold/
+*.part
+*.tmp
+__pycache__/
