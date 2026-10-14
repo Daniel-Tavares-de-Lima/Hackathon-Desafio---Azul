@@ -1,1 +1,4 @@
 duckdb>=1.1
+numpy>=2.0
+pandas>=2.2
+pyarrow>=17

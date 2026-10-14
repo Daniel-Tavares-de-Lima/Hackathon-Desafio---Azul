@@ -1,0 +1,30 @@
+table: silver.synthetic_viagens_futuro
+layer: silver
+version: 1
+description: >
+  Trechos sintéticos do PERÍODO DE RÓTULO: voos de 2026-03-01 a 2026-08-31 (6 meses). Mesmo schema de
+  synthetic_viagens. É holdout para rótulo, avaliação e demonstração do Radar. NUNCA usar como entrada de modelo
+  (o rótulo de evasão e o CLV futuro saem daqui). Quem "parou de voar" (premissa P-13) não tem linhas aqui.
+produced_by: pipelines/synthetic/generate.py
+sources: [silver.anac_tarifas, silver.anac_vra, gold.route_disruptions, gold.route_exits]
+storage:
+  format: parquet (zstd)
+  path: data/silver/synthetic_viagens_futuro/data.parquet
+grain: [viagem_id]
+schema_ref: contracts/synthetic_viagens.yaml   # mesmas colunas e tipos
+columns:
+  - {name: viagem_id, type: VARCHAR(36), nullable: false, description: "UUID v4 derivado da seed"}
+  - {name: cliente_id, type: VARCHAR(36), nullable: false, description: "FK synthetic_clientes.cliente_id"}
+  - {name: data_voo, type: DATE, nullable: false, description: "Data do voo, entre 2026-03-01 e 2026-08-31"}
+  - {name: ano_mes, type: VARCHAR(7), nullable: false, description: "Mês do voo 'AAAA-MM'"}
+  - {name: sentido, type: VARCHAR(5), nullable: false, description: "'ida' ou 'volta'"}
+  - {name: origem_icao, type: VARCHAR(4), nullable: false, description: ICAO de origem}
+  - {name: destino_icao, type: VARCHAR(4), nullable: false, description: ICAO de destino}
+  - {name: par_rota, type: VARCHAR(9), nullable: false, description: "Par em ordem alfabética"}
+  - {name: tarifa_brl, type: DOUBLE, nullable: false, unit: BRL, description: Tarifa do trecho}
+  - {name: antecedencia_dias, type: SMALLINT, nullable: false, description: Dias entre a compra e o voo}
+  - {name: atraso_partida_min, type: INTEGER, nullable: true, description: Minutos de atraso de partida; nulo se cancelado}
+  - {name: cancelado, type: BOOLEAN, nullable: false, description: Trecho cancelado}
+quality:
+  - viagem_id único
+  - data_voo entre 2026-03-01 e 2026-08-31

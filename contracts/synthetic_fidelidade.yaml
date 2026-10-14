@@ -1,0 +1,37 @@
+table: silver.synthetic_fidelidade
+layer: silver
+version: 1
+description: >
+  Posição no Azul Fidelidade por cliente e ano calendário, calculada pelas regras públicas (premissa P-11) sobre os
+  trechos voados do HISTÓRICO. Três linhas por cliente: 2024 (parcial, set-dez), 2025 (completo) e 2026 (parcial,
+  só jan-fev; nada do período de rótulo entra). Pontos qualificáveis são derivados do gasto aéreo (0,5 ponto por R$)
+  com ruído; não existem na fonte pública por viagem.
+produced_by: pipelines/synthetic/generate.py
+sources: [silver.synthetic_viagens]
+storage:
+  format: parquet (zstd)
+  path: data/silver/synthetic_fidelidade/data.parquet
+grain: [cliente_id, ano]
+columns:
+  - {name: cliente_id, type: VARCHAR(36), nullable: false, description: "FK synthetic_clientes.cliente_id"}
+  - {name: ano, type: BIGINT, nullable: false, description: "Ano calendário da qualificação (2024, 2025 ou 2026)"}
+  - {name: referencia_ate, type: DATE, nullable: false, description: "Data até a qual o ano foi acumulado (2024-12-31, 2025-12-31, 2026-02-28)"}
+  - {name: ano_completo, type: BOOLEAN, nullable: false, description: "false em 2024 (histórico começa em 2024-09) e em 2026 (só até o corte)"}
+  - {name: trechos, type: BIGINT, nullable: false, description: Trechos voados (não cancelados) no ano até referencia_ate}
+  - {name: gasto_aereo_brl, type: DOUBLE, nullable: false, unit: BRL, description: Soma das tarifas dos trechos voados no ano}
+  - {name: pontos_qualificaveis, type: BIGINT, nullable: false, description: "Derivado: gasto x 0,5 x multiplicador do cliente x ruído do ano (premissa P-11)"}
+  - {name: nivel_alcancado, type: VARCHAR, nullable: false, description: "Maior nível atingido no ano até referencia_ate: Sem nível, Topázio, Safira, Diamante, Diamante Unique"}
+  - {name: nivel_vigente, type: VARCHAR, nullable: false, description: "Maior entre o nível alcançado no ano e o do ano anterior (simplificação: nível vale até o fim do ano seguinte)"}
+  - {name: folga_pct_nivel_alcancado, type: DOUBLE, nullable: true, description: "Quanto o cliente excede o limite do nível alcançado no caminho mais folgado (0,25 = 25% acima; 0 = no limite); nulo sem nível. Mede a proximidade de cair"}
+  - {name: falta_pct_proximo_nivel, type: DOUBLE, nullable: true, description: "Fração que falta (0 a 1) para o próximo nível, no caminho mais próximo; nulo no topo"}
+  - {name: faltam_trechos_proximo, type: DOUBLE, nullable: true, description: "Trechos que faltam no caminho mais próximo; nulo se o caminho não exige trechos ou no topo"}
+  - {name: faltam_pontos_proximo, type: DOUBLE, nullable: true, description: "Pontos qualificáveis que faltam no caminho mais próximo; nulo se não exige pontos ou no topo"}
+  - {name: faltam_gasto_proximo_brl, type: DOUBLE, nullable: true, unit: BRL, description: "Gasto aéreo que falta no caminho mais próximo; nulo se não exige gasto ou no topo"}
+quality:
+  - grão único (cliente_id, ano), 3 linhas por cliente
+  - nivel_vigente >= nivel_alcancado
+rules:
+  Topázio: "6 trechos OU 6.000 pontos qualificáveis"
+  Safira: "10 trechos OU 10.000 pontos"
+  Diamante: "(12 trechos E 12.000 pontos) OU R$ 25.000 em gastos aéreos"
+  Diamante Unique: "(26 trechos E 26.000 pontos) OU R$ 50.000 (mesma regra em todos os anos; em vigor desde 13/01/2026)"

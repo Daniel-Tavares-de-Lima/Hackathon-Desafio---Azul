@@ -1,0 +1,20 @@
+table: silver.synthetic_clientes
+layer: silver
+version: 1
+description: >
+  Cadastro sintético de 50.000 clientes fictícios. Sem nenhum atributo pessoal (nome, CPF, e-mail, gênero, raça,
+  idade). O arquétipo latente NÃO está aqui (fica em synthetic_archetypes_validacao). Ponto de troca
+  sintético -> real: a Azul entregaria a mesma estrutura mínima (id pseudonimizado, aeroporto base, consentimento).
+produced_by: pipelines/synthetic/generate.py
+sources: [silver.anac_vra, silver.anac_tarifas]   # calibração do aeroporto de casa (premissa P-08)
+storage:
+  format: parquet (zstd)
+  path: data/silver/synthetic_clientes/data.parquet
+grain: [cliente_id]
+columns:
+  - {name: cliente_id, type: VARCHAR(36), nullable: false, description: "UUID v4 derivado da seed (reprodutível), sem relação com pessoa real"}
+  - {name: aeroporto_casa, type: VARCHAR(4), nullable: false, description: "ICAO do aeroporto de casa, sorteado proporcionalmente aos voos da Azul no VRA (hubs SBKP, SBCF, SBRF aparecem mais)"}
+  - {name: consentimento_marketing, type: BOOLEAN, nullable: false, description: "Consentimento LGPD para ações de marketing (~70%, independente de qualquer outra coluna; premissa P-14)"}
+quality:
+  - cliente_id único
+  - nenhuma coluna de arquétipo ou atributo pessoal

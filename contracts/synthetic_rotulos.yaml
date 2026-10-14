@@ -1,0 +1,23 @@
+table: silver.synthetic_rotulos
+layer: silver
+version: 1
+description: >
+  Rótulos do modelo, medidos no período de rótulo (voos de 2026-03-01 a 2026-08-31) para cada cliente, com corte em
+  2026-02-28. Só para treino e avaliação: NUNCA usar como entrada. Evasão e CLV vêm das viagens futuras, que já
+  incorporam o evento oculto de parada e o acaso de Poisson (premissa P-13).
+produced_by: pipelines/synthetic/generate.py
+sources: [silver.synthetic_viagens_futuro]
+storage:
+  format: parquet (zstd)
+  path: data/silver/synthetic_rotulos/data.parquet
+grain: [cliente_id]
+columns:
+  - {name: cliente_id, type: VARCHAR(36), nullable: false, description: "FK synthetic_clientes.cliente_id"}
+  - {name: data_corte, type: DATE, nullable: false, description: "Fim do histórico (2026-02-28)"}
+  - {name: viajou_no_historico, type: BOOLEAN, nullable: false, description: "Ao menos 1 trecho voado (não cancelado) de 2024-09-01 a 2026-02-28"}
+  - {name: evasao, type: TINYINT, nullable: true, description: "1 = nenhum trecho voado de 2026-03 a 2026-08; 0 = ao menos um. Nulo se viajou_no_historico = false (população do modelo de evasão = não nulos)"}
+  - {name: trechos_futuros_6m, type: BIGINT, nullable: false, description: Trechos voados (não cancelados) no período de rótulo}
+  - {name: clv_futuro_6m_brl, type: DOUBLE, nullable: false, unit: BRL, description: "Soma das tarifas dos trechos voados no período de rótulo (receita aérea bruta de 6 meses; não é margem); 0 se não voou"}
+quality:
+  - grão único
+  - evasao nulo se e somente se viajou_no_historico = false

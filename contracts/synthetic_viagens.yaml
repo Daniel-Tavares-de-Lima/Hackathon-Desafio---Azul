@@ -1,0 +1,31 @@
+table: silver.synthetic_viagens
+layer: silver
+version: 1
+description: >
+  Trechos (pernas de voo) sintéticos do HISTÓRICO: voos de 2024-09-01 a 2026-02-28 (18 meses). Uma linha = um trecho
+  (ida ou volta) de um cliente. Rotas sorteadas pela participação da Azul (assentos vendidos, tarifas ANAC), tarifa
+  sorteada da distribuição real da Azul no par e no mês da compra, atraso/cancelamento sorteados da taxa real da rota
+  e do mês (VRA). Os voos de 2026-03 a 2026-08 estão em synthetic_viagens_futuro (holdout, nunca usar como entrada).
+produced_by: pipelines/synthetic/generate.py
+sources: [silver.anac_tarifas, silver.anac_vra, gold.route_disruptions, gold.route_exits]
+storage:
+  format: parquet (zstd)
+  path: data/silver/synthetic_viagens/data.parquet
+grain: [viagem_id]
+columns:
+  - {name: viagem_id, type: VARCHAR(36), nullable: false, description: "UUID v4 derivado da seed"}
+  - {name: cliente_id, type: VARCHAR(36), nullable: false, description: "FK synthetic_clientes.cliente_id"}
+  - {name: data_voo, type: DATE, nullable: false, description: "Data do voo (compra + antecedência para a ida; ida + estadia para a volta); <= 2026-02-28 nesta tabela"}
+  - {name: ano_mes, type: VARCHAR(7), nullable: false, description: "Mês do voo 'AAAA-MM'"}
+  - {name: sentido, type: VARCHAR(5), nullable: false, description: "'ida' (casa -> destino) ou 'volta'"}
+  - {name: origem_icao, type: VARCHAR(4), nullable: false, description: ICAO de origem do trecho}
+  - {name: destino_icao, type: VARCHAR(4), nullable: false, description: ICAO de destino do trecho}
+  - {name: par_rota, type: VARCHAR(9), nullable: false, description: "Os dois aeroportos em ordem alfabética, igual às gold (join com route_exits e route_competition)"}
+  - {name: tarifa_brl, type: DOUBLE, nullable: false, unit: BRL, description: "Tarifa do trecho sem taxas de embarque, sorteada da distribuição empírica AZU par x mês da compra"}
+  - {name: antecedencia_dias, type: SMALLINT, nullable: false, description: "Dias entre a compra e o voo (0 a 330 na ida; a volta soma a estadia). Antecedência maior reduz o quantil de tarifa (premissa P-09)"}
+  - {name: atraso_partida_min, type: INTEGER, nullable: true, description: "Minutos de atraso de partida (negativo = antecipado); nulo se cancelado"}
+  - {name: cancelado, type: BOOLEAN, nullable: false, description: "Trecho cancelado (não conta para trechos, gasto, nível nem CLV; premissa P-10)"}
+quality:
+  - viagem_id único
+  - data_voo <= 2026-02-28
+  - tarifa_brl > 0

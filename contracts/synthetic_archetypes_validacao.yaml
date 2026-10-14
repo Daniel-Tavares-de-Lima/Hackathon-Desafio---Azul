@@ -1,0 +1,19 @@
+table: silver.synthetic_archetypes_validacao
+layer: silver
+version: 1
+description: >
+  Arquétipo latente de cada cliente usado para gerar o comportamento (corporativo_frequente, lazer_premium,
+  regional_dependente, em_ascensao, ocasional). SOMENTE PARA VALIDAÇÃO do sintético e auditoria. PROIBIDO como
+  feature, em join de treino ou no app: o dado real da Azul não tem arquétipo. Nenhuma outra tabela contém esta coluna.
+produced_by: pipelines/synthetic/generate.py
+sources: []
+storage:
+  format: parquet (zstd)
+  path: data/silver/synthetic_archetypes_validacao/data.parquet
+grain: [cliente_id]
+columns:
+  - {name: cliente_id, type: VARCHAR(36), nullable: false, description: "FK synthetic_clientes.cliente_id"}
+  - {name: arquetipo, type: VARCHAR, nullable: false, description: "Arquétipo oculto (cinco valores; premissa P-07)"}
+quality:
+  - grão único
+  - não pode ser lida por ml/, agent/ ou app/
