@@ -37,7 +37,7 @@ FIM_JANELA = np.datetime64("2026-08-31")
 # ---- premissas (cada uma documentada em docs/PREMISSAS.md, P-06 a P-14) ----
 ARQ = ["corporativo_frequente", "lazer_premium", "regional_dependente", "em_ascensao", "ocasional"]
 MIX = np.array([0.08, 0.10, 0.18, 0.15, 0.49])
-LAMBDA_MEDIA = np.array([1.0, 0.30, 0.50, 0.30, 0.12])   # eventos (ida e volta) por mes
+LAMBDA_MEDIA = np.array([0.9, 0.25, 0.28, 0.20, 0.12])   # eventos (ida e volta) por mes
 GAMMA_FORMA = 1.5                                         # heterogeneidade: taxa individual ~ Gamma(forma, media/forma)
 WARM = 4                                                  # meses de compra anteriores a 2024-09 (aquecimento)
 SAZ_MAX = 3.0                                             # teto do indice sazonal da rota
@@ -54,11 +54,18 @@ PROB_REACOMODA = 0.60                                     # favorita indisponive
 P_CONSENTIMENTO = 0.70
 TAXA_PONTOS = 0.5                                         # pontos qualificaveis por R$ de gasto aereo
 SIGMA_PONTOS_CLIENTE, SIGMA_PONTOS_ANO = 0.10, 0.08
-# evasao: logit(p) = intercepto do arquetipo + efeitos + ruido (P-12)
-INTERCEPTO = np.array([-2.6, -2.0, -2.3, -2.8, -1.3])
-EF = dict(atraso=0.20, cancelamento=0.35, saida=0.60, reducao=0.25, queda=0.45, nivel=0.35, volume=0.10, ruido=0.6)
-VOLUME_REF = 8.0                                          # trechos em 12 meses que zeram o efeito de volume
+# evasao (P-13): probabilidade de "parar" = sigmoid(base) + efeitos ADITIVOS em pontos percentuais (calibrados por faixa de frequencia)
+INTERCEPTO = np.array([-3.0, -2.4, -2.6, -3.2, -2.0])
+EF_FREQ_FAIXA = np.array([0.4, 0.0, -0.5])                # frequencia alta REDUZ a chance: degrau no logit por faixa (baixa, media, alta); sem efeito continuo dentro da faixa
+EF_QUEDA = 1.5                                            # tendencia de queda: logit por unidade de (1 - razao), razao = (trechos/mes ultimos 6) / (trechos/mes dos 12 anteriores)
+EF_RUIDO = 0.6                                            # desvio do ruido individual no logit
+DELTA_PP = dict(a_grave=0.08, saida=0.20, reducao=0.08, queda=0.10, nivel=0.06)   # alvo da diferenca de evasao entre expostos e nao expostos, na mesma faixa
+RUIDO_EFEITO = 0.30                                       # cada efeito individual ~ N(1; 0,30) clipado em 0,2..2 vezes o valor
+ELEG_MIN = 3.0                                            # elegivel: trechos esperados em 6 meses (taxa mensal do historico x 6) >= 3
+LIMITE_EVASAO = 0.30                                      # evasao = voar <= 30% do esperado no periodo de rotulo
+PHI_ZERO, PHI_MAX = 0.6, 0.25                             # quem para: 60% zera o futuro; os demais mantem fracao U(0; 0,25) dos trechos
 FOLGA_PERTO = 0.25                                        # folga < 25% acima do limite = perto de perder o nivel
+ATRASO_GRAVE_MIN, JANELA_GRAVE_DIAS = 60, 90              # ameaca A grave: 2 eventos (atraso > 60 min ou cancelado) em 90 dias
 
 NIVEIS = ["Sem nível", "Topázio", "Safira", "Diamante", "Diamante Unique"]
 # caminhos alternativos (OU); dentro do caminho, todos os requisitos (E): (trechos, pontos, gasto R$)
@@ -140,7 +147,7 @@ def carrega(con):
                         AND situacao_voo IN ('REALIZADO','CANCELADO') AND ano_mes <= '2026-02' GROUP BY 1""").df()
     vo = vo.set_index("origem_icao")["count_star()"]
     f["voos_origem"] = vo
-    f["peso_home"] = np.array([float(vo.get(a, 0)) for a in homes])
+    f["peso_home"] = stot.sum(1)                                   # casa por assentos da Azul (tarifas), mesma fonte das rotas
     # taxas de cancelamento e atraso > 30 por rota direcional x mes (Azul)
     A = len(aer)
     rc = np.full((A, A, NM), np.nan, np.float32); rl = rc.copy()
@@ -148,6 +155,7 @@ def carrega(con):
     d = d[d["o"].isin(aidx) & d["d"].isin(aidx)]
     io, idd, it = d["o"].map(aidx).to_numpy(), d["d"].map(aidx).to_numpy(), d["t"].to_numpy()
     rc[io, idd, it] = d["c"].astype(float).to_numpy(); rl[io, idd, it] = d["l"].astype(float).to_numpy()
+    f["rc_obs"] = ~np.isnan(rc)
     glob = con.execute(f"""SELECT {mi} t, SUM(voos_cancelados)*1.0/SUM(voos_previstos) c, SUM(voos_atraso_30)*1.0/SUM(voos_realizados) l
                            FROM route_disruptions WHERE empresa_icao='AZU' GROUP BY 1 ORDER BY 1""").df()
     for arr, col in ((rc, "c"), (rl, "l")):
@@ -331,6 +339,20 @@ def ameacas_bc(lp, f):
     return pd.concat(saida, ignore_index=True)
 
 
+def gatilhos_a(L):
+    """Ameaca A grave: 2 eventos (atraso de partida > 60 min ou cancelado) em ate 90 dias. Devolve as linhas do 2o evento.
+    Guloso por cliente: eventos ja usados num gatilho nao entram no proximo."""
+    E = L[L["cancelado"] | (L["atraso"] > ATRASO_GRAVE_MIN)].sort_values(["c", "data", "sentido"], kind="stable")
+    c = E["c"].to_numpy(); d = E["data"].to_numpy().astype("datetime64[D]").astype(int)
+    trig = np.zeros(len(E), bool); ult = -1
+    for i in range(len(E)):
+        if ult >= 0 and c[ult] == c[i] and d[i] - d[ult] <= JANELA_GRAVE_DIAS:
+            trig[i] = True; ult = -1
+        else:
+            ult = i
+    return E[trig]
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")   # make roda sem -X utf8
     t0 = time.perf_counter()
@@ -351,13 +373,19 @@ def main():
     Lh = L[L["tipo_hist"]]
     fid = fidelidade(Lh, ids, rng)
 
-    # ---- evasao: features do historico, ameacas B/C e A nos ultimos 6 meses do historico ----
+    # ---- evasao: features do historico (ate 2026-02), elegibilidade e efeitos ----
     voadas_h = Lh[~Lh["cancelado"]]
-    viajou = np.bincount(voadas_h["c"], minlength=N) > 0
+    legs_hist = np.bincount(voadas_h["c"], minlength=N)
+    viajou = legs_hist > 0
+    esperado6 = legs_hist / T_HIST * 6                       # trechos esperados em 6 meses = taxa mensal do historico x 6
+    elegivel = esperado6 >= ELEG_MIN
     legs12 = np.bincount(voadas_h[voadas_h["t"] >= 6]["c"], minlength=N)
-    u6 = Lh[Lh["t"] >= 12]
-    n_atraso = np.bincount(u6[u6["atraso"] > 30]["c"], minlength=N)
-    n_canc = np.bincount(u6[u6["cancelado"]]["c"], minlength=N)
+    l6 = np.bincount(voadas_h[voadas_h["t"] >= 12]["c"], minlength=N)
+    p12 = np.bincount(voadas_h[voadas_h["t"] < 12]["c"], minlength=N)
+    razao = np.where(p12 > 0, (l6 / 6) / np.maximum(p12 / 12, 1e-9), 1.0)      # sem base nos 12 meses anteriores: neutro
+    queda = np.clip(1 - razao, -0.5, 1.0)
+    gh = gatilhos_a(Lh); gh = gh[gh["t"] >= 12]
+    a_grave = np.zeros(N, bool); a_grave[gh["c"].to_numpy()] = True
     cp = voadas_h.groupby(["c", "pid"]).size().reset_index(name="n").sort_values(["c", "n", "pid"], ascending=[True, False, True])
     fav = np.full(N, -1); cpu = cp.drop_duplicates("c"); fav[cpu["c"].to_numpy()] = cpu["pid"].to_numpy()
     bc_h = ameacas_bc(voadas_h[["c", "pid", "t"]].drop_duplicates(), f)
@@ -368,12 +396,52 @@ def main():
         flag[d][bc_h[bc_h["detalhe"] == d]["c"].to_numpy()] = True
     f25 = fid[fid["ano"] == 2025]
     perto = ((f25["_niv"].to_numpy() >= 1) & (f25["_folga"].to_numpy() < FOLGA_PERTO))
-    logit = (INTERCEPTO[arq] + EF["atraso"] * np.minimum(n_atraso, 3) + EF["cancelamento"] * (n_canc > 0)
-             + EF["saida"] * flag["saida_total"] + EF["reducao"] * flag["reducao"] + EF["queda"] * flag["queda_tarifa"]
-             + EF["nivel"] * perto + EF["volume"] * (np.log1p(legs12) - math.log1p(VOLUME_REF))
-             + EF["ruido"] * rng.standard_normal(N))
-    parou = viajou & (rng.random(N) < 1 / (1 + np.exp(-logit)))
-    L = L[~(L["c"].isin(np.where(parou)[0]) & (L["t"] >= T_HIST))].reset_index(drop=True)
+    # faixas de frequencia = tercis da taxa mensal entre elegiveis; q = evasao "natural" (so acaso) da faixa, para calibrar o delta
+    taxa_mes = legs_hist / T_HIST
+    cortes = np.quantile(taxa_mes[elegivel], [1 / 3, 2 / 3])
+    faixa = np.where(elegivel, np.digitize(taxa_mes, cortes), -1)
+    nat_cnt = np.bincount(L[(L["t"] >= T_HIST) & ~L["cancelado"]]["c"], minlength=N)
+    nat = nat_cnt <= LIMITE_EVASAO * esperado6 + 1e-9
+    q_faixa = np.array([nat[elegivel & (faixa == b)].mean() for b in range(3)])
+    qc = q_faixa[np.maximum(faixa, 0)]
+    eps = np.clip(1 + RUIDO_EFEITO * rng.standard_normal((N, 5)), 0.2, 2.0)
+    expo = np.stack([a_grave, flag["saida_total"], flag["reducao"], flag["queda_tarifa"], perto], 1)
+    fb = np.maximum(faixa, 0)
+    p0 = 1 / (1 + np.exp(-(INTERCEPTO[arq] + EF_FREQ_FAIXA[fb] + EF_QUEDA * queda + EF_RUIDO * rng.standard_normal(N))))
+    u_par = rng.random(N)
+    alvo = np.array(list(DELTA_PP.values()))
+    # calibracao por faixa: ajusta kappa[ameaca, faixa] (multiplicador do delta) ate a diferenca observada de evasao entre expostos e nao
+    # expostos DA MESMA FAIXA ficar no alvo. Absorve confundidores (ex.: saida de rota reduz trechos e ja puxa a tendencia de queda).
+    # Saida total tem poucos expostos: um kappa so para as tres faixas.
+    kappa = np.ones((5, 3))
+    for it in range(15):
+        dlt = (alvo[:, None] * kappa[:, fb] / (1 - qc)[None, :]).T
+        pp_ = np.clip(p0 + (expo * dlt * eps).sum(1), 0.005, 0.98)
+        lab = elegivel & (((u_par < pp_) & viajou) | nat)
+        for k_ in range(5):
+            dif, nn = [], []
+            for b_ in range(3):
+                g = elegivel & (faixa == b_)
+                e1 = g & expo[:, k_]
+                dif.append(lab[e1].mean() - lab[g & ~expo[:, k_]].mean() if e1.sum() >= 8 else np.nan); nn.append(e1.sum())
+            dif, nn = np.array(dif), np.array(nn)
+            if k_ == 1:
+                ok_ = ~np.isnan(dif)
+                kappa[k_, :] = np.clip(kappa[k_, :] + 0.8 * (alvo[k_] - np.sum(dif[ok_] * nn[ok_]) / nn[ok_].sum()) / alvo[k_], 0, 8)
+            else:
+                for b_ in range(3):
+                    if not np.isnan(dif[b_]):
+                        kappa[k_, b_] = np.clip(kappa[k_, b_] + 0.8 * (alvo[k_] - dif[b_]) / alvo[k_], 0, 8)
+    dlt = (alvo[:, None] * kappa[:, fb] / (1 - qc)[None, :]).T
+    p = np.clip(p0 + (expo * dlt * eps).sum(1), 0.005, 0.98)
+    parou = viajou & (u_par < p)
+    # quem para voa <= 30% do esperado: mantem cada trecho do rotulo com prob. phi e depois corta ate o teto
+    phi = np.where(rng.random(N) < PHI_ZERO, 0.0, rng.uniform(0, PHI_MAX, N))
+    L = L[~((L["t"] >= T_HIST) & parou[L["c"].to_numpy()]) | (rng.random(len(L)) < phi[L["c"].to_numpy()])].reset_index(drop=True)
+    cap = np.floor(LIMITE_EVASAO * esperado6 + 1e-9).astype(int)
+    sub = L[(L["t"] >= T_HIST) & ~L["cancelado"] & parou[L["c"].to_numpy()]].assign(_k=lambda d: rng.random(len(d))).sort_values(["c", "_k"])
+    ex = sub.index[sub.groupby("c").cumcount().to_numpy() >= cap[sub["c"].to_numpy()]]
+    L = L.drop(index=ex).reset_index(drop=True)
 
     # ---- tabelas finais ----
     L = L.sort_values(["c", "data", "sentido"], kind="stable").reset_index(drop=True)
@@ -396,17 +464,18 @@ def main():
     clv = np.bincount(vf["c"], weights=vf["tarifa"], minlength=N)
     rot = pd.DataFrame(dict(
         cliente_id=ids, data_corte=CORTE, viajou_no_historico=viajou,
-        evasao=pd.array(np.where(viajou, (viajou_f == 0).astype(int), np.nan), dtype="Int8"),
+        elegivel_evasao=elegivel, trechos_esperados_6m=np.round(esperado6, 2),
+        evasao=pd.array(np.where(elegivel, (viajou_f <= LIMITE_EVASAO * esperado6 + 1e-9).astype(int), np.nan), dtype="Int8"),
         trechos_futuros_6m=viajou_f, clv_futuro_6m_brl=np.round(clv, 2)))
     clientes = pd.DataFrame(dict(cliente_id=ids, aeroporto_casa=f["homes"][home], consentimento_marketing=consent))
     arqt = pd.DataFrame(dict(cliente_id=ids, arquetipo=np.array(ARQ)[arq]))
 
     # ameacas finais: A por viagem (sorteio), B e C por par e mes
-    a = L[L["cancelado"] | (L["atraso"] > 30)]
+    a = gatilhos_a(L)
     ta = pd.DataFrame(dict(
         cliente_id=a["cliente_id"], tipo_ameaca="A", ano_mes=a["ano_mes"], data_ameaca=a["data"],
         par_rota=a["par_rota"], origem_icao=a["origem_icao"], destino_icao=a["destino_icao"],
-        detalhe=np.where(a["cancelado"], "cancelamento", "atraso_30"), viagem_id=a["viagem_id"], _t=a["t"]))
+        detalhe="grave_2_eventos_90d", viagem_id=a["viagem_id"], _t=a["t"]))
     bc = ameacas_bc(voadas[["c", "pid", "t"]].drop_duplicates(), f)
     tb = pd.DataFrame(dict(
         cliente_id=ids[bc["c"].to_numpy()], tipo_ameaca=bc["tipo"], ano_mes=np.array(MESES)[bc["m"].to_numpy()],
@@ -432,14 +501,21 @@ def main():
         os.replace(tmp, out)
         print(f"synthetic_{nome}: {len(df)} linhas -> {out.relative_to(ROOT).as_posix()}", flush=True)
 
-    # diagnostico: os efeitos documentados aparecem na taxa de evasao (entre quem viajou no historico; sem controle de confundidores)
+    # diagnostico por faixa de frequencia: taxa de evasao de expostos x nao expostos (entre elegiveis)
     ev = rot["evasao"].to_numpy(dtype=float, na_value=np.nan)
     diag = {}
-    for nome, m in (("saída total na rota favorita", flag["saida_total"]), ("redução na rota favorita", flag["reducao"]),
-                    ("queda de tarifa na rota favorita", flag["queda_tarifa"]), ("perto de perder o nível", perto),
-                    ("cancelamento nos últimos 6 meses", n_canc > 0), ("atraso > 30 min nos últimos 6 meses", n_atraso > 0)):
-        d = viajou & m
-        diag[nome] = (int(d.sum()), float(np.nanmean(ev[d])), float(np.nanmean(ev[viajou & ~m])))
+    for k_, (nome, m) in enumerate((("A grave (2 eventos em 90 dias)", a_grave), ("B saída total na rota favorita", flag["saida_total"]),
+                                    ("B redução na rota favorita", flag["reducao"]), ("C queda de tarifa na rota favorita", flag["queda_tarifa"]),
+                                    ("Perto de cair de nível", perto))):
+        linhas = []
+        for b_ in range(3):
+            g = elegivel & (faixa == b_)
+            e1, e0 = g & m, g & ~m
+            linhas.append((b_, int(e1.sum()), float(np.mean(ev[e1])) if e1.any() else np.nan, float(np.mean(ev[e0])),
+                           100 * (float(np.mean(ev[e1])) - float(np.mean(ev[e0]))) if e1.any() else np.nan))
+        diag[nome] = (linhas, DELTA_PP[list(DELTA_PP)[k_]])
+    diag["_cortes"] = (cortes, q_faixa)
+    diag["_kappa"] = kappa
     relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fora_janela, parou, viajou, diag, time.perf_counter() - t0)
 
 
@@ -476,11 +552,18 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
         pub_l = float(dis.get(r["par"], np.nan))
         ok_ = ~s["cancelado"].to_numpy()
         esp_l = float(f["rl"][s["o"].to_numpy()[ok_], s["d"].to_numpy()[ok_], s["t"].to_numpy()[ok_]].mean())   # esperado com o mix rota-mes do sintetico
+        so, sd, st = s["o"].to_numpy(), s["d"].to_numpy(), s["t"].to_numpy()
+        obs_ = f["rc_obs"][so, sd, st]
+        esp_c = float(f["rc"][so, sd, st][obs_].mean()); sint_c = float(s["cancelado"].to_numpy()[obs_].mean())
         lin.append((r["par"], r["tarifa"], sint_t, pct_err(sint_t, r["tarifa"]), r["part"], sint_sh, pct_err(sint_sh, r["part"]),
-                    float(mkt.get(r["par"], np.nan)), pub_l, sint_l, pct_err(sint_l, pub_l), len(s), esp_l, pct_err(sint_l, esp_l)))
-    v = pd.DataFrame(lin, columns=["par", "t_pub", "t_sint", "t_err", "sh_pub", "sh_sint", "sh_err", "azul_no_par", "l_pub", "l_sint", "l_err", "n", "l_esp", "l_err_esp"])
+                    float(mkt.get(r["par"], np.nan)), pub_l, sint_l, pct_err(sint_l, pub_l), len(s), esp_l, pct_err(sint_l, esp_l),
+                    sint_c, esp_c, pct_err(sint_c, esp_c)))
+    v = pd.DataFrame(lin, columns=["par", "t_pub", "t_sint", "t_err", "sh_pub", "sh_sint", "sh_err", "azul_no_par", "l_pub", "l_sint", "l_err", "n", "l_esp", "l_err_esp",
+                                   "c_sint", "c_esp", "c_err"])
     glob_l = (voadas["atraso"] > 30).mean(); glob_c = L["cancelado"].mean()
-    hubs = f["voos_origem"].sort_values(ascending=False).head(5)
+    lo, ld, lt = L["o"].to_numpy(), L["d"].to_numpy(), L["t"].to_numpy()
+    obs_g = f["rc_obs"][lo, ld, lt]
+    esp_cg = float(f["rc"][lo, ld, lt][obs_g].mean()); sint_cg = float(L["cancelado"].to_numpy()[obs_g].mean())
     hs = clientes["aeroporto_casa"].value_counts(normalize=True)
     nivel_ano = fid.pivot_table(index="nivel_vigente", columns="ano", values="cliente_id", aggfunc="count").reindex(NIVEIS)
     f26 = fid[fid["ano"] == 2026].set_index("cliente_id")
@@ -513,9 +596,7 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
     arq_evas = rot.merge(arqt, on="cliente_id").groupby("arquetipo").agg(clientes=("cliente_id", "size"), evasao=("evasao", lambda s: s.dropna().astype(float).mean()),
                                                                           viajou=("viajou_no_historico", "mean"))
     sem_viagem_hist = int((~rot["viajou_no_historico"]).sum())
-    ids_ativos = set(voadas[(voadas["t"] >= 12) & (voadas["t"] < T_HIST)]["cliente_id"])
-    m_at = rot["cliente_id"].isin(ids_ativos)
-    evas_ativos = rot.loc[m_at, "evasao"].astype(float).mean()
+    n_eleg = int(rot["elegivel_evasao"].sum())
     evas_nivel = rot.assign(nivel=rot["cliente_id"].map(nv)).groupby("nivel")["evasao"].apply(lambda s: s.dropna().astype(float).mean()).reindex(NIVEIS)
 
     md = ["# Validação do sintético contra fontes públicas",
@@ -531,35 +612,43 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
     md += ["",
            f"- Tarifa média global: público R$ {pub_tarifa_g:,.2f}; sintético R$ {L['tarifa'].mean():,.2f} ({pct_err(L['tarifa'].mean(), pub_tarifa_g):+.1f}%).",
            f"- Atraso > 30 min global (voos realizados): público {100*pub_total_voos_l[0]:.2f}%; sintético {100*glob_l:.2f}% ({pct_err(glob_l, pub_total_voos_l[0]):+.1f}%).",
-           f"- Cancelamento global: público {100*pub_total_voos_l[1]:.2f}%; sintético {100*glob_c:.2f}% ({pct_err(glob_c, pub_total_voos_l[1]):+.1f}%).",
+           f"- Share do par: erro absoluto máximo {v['sh_err'].abs().max():.1f}%, médio {v['sh_err'].abs().mean():.1f}% (versão anterior, casa por voos do VRA: de -46% a +17%).",
            "",
-           "**Erros acima de 5% e causas:** (1) *Share do par* (-46% a +17%): casa sorteada por voos do VRA e destino por assentos de tarifas; a razão voos/assentos por aeroporto (tabela abaixo) "
-           "faz hubs (SBKP, SBCF) pesarem mais e SBSP, SBGR, SBBR, SBGL e SBPA menos que no público. Efeito pedido (hubs aparecem mais), não corrigido. "
-           "(2) *Atraso > 30 min* (até ±8,6%): mistura de dois efeitos medidos nas duas últimas colunas; o mix rota-mês do sintético segue as vendas (mês da compra), não os voos, "
-           "e o sorteio tem ruído binomial (cerca de 2,5% a 3,6% relativo, 1 desvio-padrão, nos pares com 7 a 16 mil trechos). O erro contra o esperado no mix fica em ±4,8%. "
-           "(3) *Cancelamento global* (-12,8%): a taxa pública é ponderada por voos; o sintético pondera por passageiros, que se concentram em rotas de maior frequência e menor cancelamento. "
-           "A tarifa média dos 10 pares fica dentro de ±5% (maior erro -4,1%).",
+           "**Erros acima de 5% e causas prováveis (não isoladas por teste):** (1) *Share do par* (SBGR-SBPA, SBCF-SBSP): casa e destino já saem dos mesmos assentos de tarifas, "
+           "mas o peso do par depende também da sazonalidade por rota (índice com teto 3), de cada cliente ter só 1 a 3 destinos favoritos e dos eventos perdidos onde a Azul saiu; "
+           "com 50.000 clientes e poucos milhares de trechos por par, parte é ruído de composição. (2) *Atraso > 30 min*: o sorteio é binomial (desvio-padrão de 2,5% a 3,5% relativo "
+           "nos pares) e o mix rota-mês do sintético segue as vendas, não os voos; compare as duas últimas colunas (erro contra o esperado no mix). (3) *Cancelamento por par*: evento de cerca de 0,5% a 2%, "
+           "desvio-padrão do sorteio de 8% a 15% relativo por par; o teste relevante é o global.",
+           "",
+           "## Cancelamento com a mesma ponderação nos dois lados",
+           "",
+           "A taxa pública de cancelamento de `gold.route_disruptions` é por rota direcional e mês (cancelados / previstos). A comparação anterior (2,04% ponderada por voos x 1,78% do sintético ponderado por passageiros) "
+           "misturava ponderações. Aqui o **público é reponderado pelo mix de trechos do sintético**: para cada trecho gerado, a taxa pública da sua rota direcional e mês do voo; a média é o cancelamento esperado "
+           "no mix de passageiros. Só entram trechos de rota-mês com dado na gold (os demais usam média da rota ou da rede, que não é fonte direta).",
+           "",
+           f"- Global: público no mix do sintético {100*esp_cg:.2f}%; sintético {100*sint_cg:.2f}%; erro {pct_err(sint_cg, esp_cg):+.1f}%. Referência por voo (ponderação anterior): {100*pub_total_voos_l[1]:.2f}% público; sintético sem filtro {100*glob_c:.2f}% ({pct_err(glob_c, pub_total_voos_l[1]):+.1f}%).",
+           f"- Fração dos trechos com rota-mês observada na gold: {100*obs_g.mean():.1f}%.",
+           "", "| Par | Cancelamento público no mix sint. | Cancelamento sint. | Erro % |", "|---|---|---|---|"]
+    for r in v.itertuples():
+        md.append(f"| {r.par} | {100*r.c_esp:.2f}% | {100*r.c_sint:.2f}% | {r.c_err:+.1f}% |")
+    md += ["", "Cancelamento é evento raro (cerca de 2%): nos pares com 6 a 15 mil trechos o desvio-padrão do sorteio é de 8% a 15% relativo, então erros desse tamanho nos pares são ruído amostral; o global (centenas de milhares de trechos) é o teste relevante.",
            "",
            "**Sobre a coluna 'Azul no par':** é a participação da Azul entre as companhias do par (público). O sintético tem só clientes da Azul e nenhum "
            "concorrente, então ela não é reproduzível por construção e vai apenas como contexto. O que o sintético reproduz é o peso do par no total de trechos da "
            "Azul, comparado ao peso do par no total de assentos da Azul (coluna 'Share do par').",
            "",
-           "## Aeroporto de casa x voos da Azul no VRA (histórico)",
+           "## Aeroporto de casa x assentos da Azul (tarifas)",
            "",
-           "| Aeroporto | Share de voos Azul (VRA, tipo N, DI 0, 2024-09 a 2026-02) | Share de clientes (casa) |", "|---|---|---|"]
+           "Casa e pares saem da mesma fonte: assentos vendidos pela Azul em `silver.anac_tarifas` (AZU, 2024-09 a 2026-08). Os voos do VRA vão só como referência.",
+           "",
+           "| Aeroporto | Share de assentos Azul com origem no aeroporto (tarifas) | Share de clientes (casa) | Share de voos Azul (VRA, só referência) |", "|---|---|---|---|"]
     vo = f["voos_origem"]; vo = vo / vo[[a for a in vo.index if a in set(f["homes"])]].sum()
-    for a_ in hubs.index:
-        md.append(f"| {a_} | {100*vo[a_]:.2f}% | {100*hs.get(a_, 0):.2f}% |")
-    aer10 = sorted({a_ for p_ in top["par"] for a_ in p_.split("-")})
-    md += ["", "Aeroportos dos 10 pares: peso na casa dos clientes x peso nos assentos da Azul com origem no aeroporto (silver.anac_tarifas, só entre aeroportos-casa). "
-           "A razão voos/assentos explica por que o share do par no sintético difere do público (ver 'Share' acima): os pares com SBSP, SBGR e SBPA têm menos voos Azul no VRA do que assentos vendidos em tarifas.", "",
-           "| Aeroporto | Share de voos Azul (VRA) | Share de assentos de origem (tarifas) | Razão voos/assentos |", "|---|---|---|---|"]
     ass = con.execute("SELECT origem_icao, SUM(assentos)::DOUBLE s FROM anac_tarifas WHERE empresa_icao='AZU' GROUP BY 1").df().set_index("origem_icao")["s"]
     ass = ass[[a_ for a_ in ass.index if a_ in set(f["homes"])]]; ass = ass / ass.sum()
-    for a_ in aer10:
-        md.append(f"| {a_} | {100*vo.get(a_, 0):.2f}% | {100*ass.get(a_, 0):.2f}% | {vo.get(a_, 0)/ass.get(a_, np.nan):.2f} |")
+    for a_ in ass.sort_values(ascending=False).head(8).index:
+        md.append(f"| {a_} | {100*ass[a_]:.2f}% | {100*hs.get(a_, 0):.2f}% | {100*vo.get(a_, 0):.2f}% |")
     md += ["", "## Cobertura das ameaças (clientes distintos)", "",
-           "Eventos por tipo e período (A = sorteado por viagem; B e C = pares reais de `gold.route_exits` e `gold.route_competition` em que o cliente voou nos 12 meses até o mês da ameaça):",
+           "Eventos por tipo e período (A = ameaça A grave: 2 eventos de atraso de partida > 60 min ou cancelamento em até 90 dias, data do 2º evento; B e C = pares reais de `gold.route_exits` e `gold.route_competition` em que o cliente voou nos 12 meses até o mês da ameaça):",
            "", "| Tipo | Detalhe | Período | Eventos | Clientes |", "|---|---|---|---|---|"]
     for r in det.itertuples():
         md.append(f"| {r.tipo_ameaca} | {r.detalhe} | {r.periodo} | {r.eventos} | {r.clientes} |")
@@ -568,12 +657,21 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
            "| Nível | Clientes | A hist. | B hist. | C hist. | A todos | B todos | C todos |", "|---|---|---|---|---|---|---|---|"]
     for k, r in cob.items():
         md.append(f"| {k} | {r['clientes']} | {r['A_historico']} | {r['B_historico']} | {r['C_historico']} | {r['A_todos']} | {r['B_todos']} | {r['C_todos']} |")
-    md += ["", "## Efeitos da evasão recuperáveis nos dados (diagnóstico bruto, sem controle de confundidores)", "",
-           "| Condição (histórico, entre quem viajou) | Clientes | Evasão com a condição | Evasão sem a condição |", "|---|---|---|---|"]
-    for k_, (n_, a1, a0) in diag.items():
-        md.append(f"| {k_} | {n_} | {100*a1:.1f}% | {100*a0:.1f}% |")
-    md += ["", "As diferenças brutas misturam o efeito injetado com confundidores (ex.: quem tem atraso viaja mais; quem perde nível viaja menos).",
-           "", "## Proxy do arquétipo nas tabelas de entrada", "",
+    cortes_, q_ = diag.pop("_cortes"); kappa_ = diag.pop("_kappa")
+    md += ["", "## Taxa de evasão por ameaça dentro de cada faixa de frequência (entre elegíveis)", "",
+           f"Elegíveis: {n_eleg} (trechos esperados em 6 meses >= {ELEG_MIN:g}); não elegíveis (rótulo nulo): {N - n_eleg}. "
+           f"Faixas = tercis da taxa mensal do histórico entre elegíveis: baixa < {cortes_[0]:.3f}, média até {cortes_[1]:.3f}, alta acima (trechos/mês). "
+           f"Evasão 'natural' (só acaso) por faixa, usada na calibração: {', '.join(f'{100*x:.1f}%' for x in q_)}. "
+           "Expostos = ameaça no histórico (últimos 6 meses: 2025-09 a 2026-02); não expostos = sem essa ameaça (podem ter outras). Diferença em pontos percentuais (pp); alvo entre parênteses.", "",
+           "| Ameaça (alvo) | Faixa | Expostos | Evasão expostos | Evasão não expostos | Diferença (pp) |", "|---|---|---|---|---|---|"]
+    for k_, (linhas, alvo) in diag.items():
+        for b_, n_, r1, r0, df_ in linhas:
+            md.append(f"| {k_} ({100*alvo:+.0f} pp) | {['baixa', 'média', 'alta'][b_]} | {n_} | {100*r1:.1f}% | {100*r0:.1f}% | {df_:+.1f} |")
+    md += ["", "Ameaças com poucos expostos por faixa (em especial saída total, dezenas de clientes) têm estimativa ruidosa: com n = 30 e taxa perto de 30%, o erro-padrão da diferença é de cerca de 8 pp.",
+           "", "Multiplicadores de calibração do efeito (kappa, 1 = delta nominal; ameaça × faixa baixa/média/alta): " + "; ".join(f"{nm_} {np.round(kk_, 2).tolist()}" for nm_, kk_ in zip(diag, kappa_)) + ". Kappa acima de 1 compensa confundidores que reduzem a diferença; abaixo de 1 ou 0, confundidores que já a aumentam (saída de rota reduz trechos e aciona também a tendência de queda).",
+           "", "## Pirâmide de níveis (vigente em 2026-02-28)", "", "| Nível | Clientes |", "|---|---|"]
+    md += [f"| {k_} | {int(c_)} |" for k_, c_ in nv.value_counts().reindex(NIVEIS).items()]
+    md += ["", "## Proxy do arquétipo nas tabelas de entrada", "",
            "Distância de variação total média entre P(arquétipo | valor da coluna) e P(arquétipo) (0 = a coluna não informa nada sobre o arquétipo; 1 = proxy perfeito): "
            f"aeroporto_casa {pureza['aeroporto_casa']:.4f}, consentimento_marketing {pureza['consentimento_marketing']:.4f}. "
            "As colunas de comportamento (frequência, antecedência, tarifa) são correlacionadas ao arquétipo por construção, mas as classes se sobrepõem (Gamma, ruído) e nenhuma coluna o identifica sozinha.",
@@ -584,16 +682,18 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
     print("\n===== RESUMO =====")
     print("clientes por nivel vigente (ano):\n", nivel_ano.to_string())
     print("nivel vigente ao fim do historico (2026-02-28):\n", nv.value_counts().reindex(NIVEIS).to_string())
-    print(f"evasao: base={int(base.sum())} (viajaram no historico), evadiram={int(rot.loc[base,'evasao'].astype(float).sum())}, taxa={100*evas:.2f}%; sem viagem no historico={sem_viagem_hist}")
-    print(f"evasao entre ativos nos ultimos 6m do historico: {100*evas_ativos:.2f}% (n={int(m_at.sum())})")
+    print(f"evasao: elegiveis={int(base.sum())}, evadiram={int(rot.loc[base,'evasao'].astype(float).sum())}, taxa={100*evas:.2f}%; nulos={N-int(base.sum())} (sem viagem no historico={sem_viagem_hist})")
     print("evasao por nivel:\n", evas_nivel.to_string())
     print("evasao/viajou por arquetipo (validacao):\n", arq_evas.to_string())
     print("S (parou) total:", int(parou.sum()), "| eventos de compra:", n_eventos, "| perdidos (sem rota):", perdidas, "| fora da janela/pos-saida:", fora_janela)
-    print("diag:", diag)
+    for k_, v_ in diag.items():
+        print("diag", k_, v_)
     print("ameacas por nivel:", cob)
     print("clientes atingidos por tipo:", tot_cli)
     print(det.to_string())
     print(v.round(4).to_string())
+    print(v[["par", "c_sint", "c_esp", "c_err"]].round(4).to_string())
+    print("cancel mesma ponderacao", sint_cg, esp_cg, pct_err(sint_cg, esp_cg), "frac obs", obs_g.mean())
     print("global tarifa", L["tarifa"].mean(), pub_tarifa_g, "atraso", glob_l, pub_total_voos_l, "cancel", glob_c)
     print("pureza proxy", pureza, base_arq)
     print(f"tempo total {seg:.1f}s")
