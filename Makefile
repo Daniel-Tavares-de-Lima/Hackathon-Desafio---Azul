@@ -6,7 +6,13 @@ else
 PY := .venv/bin/python
 endif
 
-.PHONY: all venv ingest ingest-tarifas ingest-vra gold synthetic
+# Janela ANAC fixa (P-01): termina em 2026-08. Exportada para sobrepor o .env; a ingestao e idempotente
+# (CSV presente no bronze nao e baixado de novo; silver so e refeito se faltar ou for mais velho que o bronze).
+ANAC_END_MONTH ?= 2026-08
+ANAC_MONTHS ?= 24
+export ANAC_END_MONTH ANAC_MONTHS
+
+.PHONY: all venv ingest ingest-tarifas ingest-vra gold synthetic test
 
 all: ingest gold synthetic
 
@@ -24,8 +30,11 @@ ingest-tarifas: $(PY)
 ingest-vra: $(PY)
 	$(PY) -I pipelines/ingest_anac.py vra
 
-gold: $(PY)
+gold: ingest
 	$(PY) -I pipelines/build_gold.py
 
 synthetic: gold
 	$(PY) -I pipelines/synthetic/generate.py
+
+test: $(PY)
+	$(PY) -I tests/test_contratos.py

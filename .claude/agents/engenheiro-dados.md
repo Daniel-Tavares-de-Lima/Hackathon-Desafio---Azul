@@ -15,7 +15,7 @@ Escopo:
 
 - Tabelas de ameaça na gold (contratos obrigatórios):
   - `gold.route_exits`: rota, mês, frequência Azul antes/depois, flag saída total ou redução >= 30%.
-  - `gold.route_competition`: rota, mês, share de assentos por empresa, entrada de concorrente, variação de tarifa média do concorrente vs Azul.
+  - `gold.route_competition`: rota, mês, share de assentos por empresa, variação de tarifa média do concorrente vs Azul.
   - `gold.route_disruptions`: rota, data, taxa de atraso > 30 min e de cancelamento.
 
 Regras: baixe só o recorte necessário (últimos 24 meses, rotas domésticas). Paths via `.env`. Idempotente.

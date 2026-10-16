@@ -1,8 +1,8 @@
 table: gold.route_exits
 layer: gold
-version: 1
+version: 2
 description: >
-  Ameaça B (ROTA ÓRFÃ). Voos realizados da Azul (AZU) por rota direcional e mês, com flags de
+  Ameaça B (ROTA ÓRFÃ). Voos realizados do grupo Azul (AZU + ACN Azul Conecta; migração AZU -> ACN não é saída) por rota direcional e mês, com flags de
   saída total e redução. Grade densa: uma linha por mês desde o primeiro voo da Azul na rota até o
   último mês da janela (meses sem voo aparecem com voos_azul = 0). A flag vale "como visto naquele mês".
 produced_by: pipelines/build_gold.py (pipelines/sql/route_exits.sql)
@@ -12,21 +12,23 @@ storage:
   path: data/gold/route_exits/data.parquet
 grain: [ano_mes, origem_icao, destino_icao]
 filters:
-  - empresa_icao = 'AZU', tipo_linha = 'N', codigo_di = '0', situacao_voo = 'REALIZADO'
+  - empresa_icao em ('AZU', 'ACN'), tipo_linha = 'N', codigo_di = '0', situacao_voo = 'REALIZADO'
 columns:
   - {name: ano_mes, type: VARCHAR(7), nullable: false, description: "Mês de referência 'AAAA-MM'"}
   - {name: origem_icao, type: VARCHAR(4), nullable: false, description: ICAO de origem}
   - {name: destino_icao, type: VARCHAR(4), nullable: false, description: ICAO de destino}
   - {name: par_rota, type: VARCHAR(9), nullable: false, description: "Os dois aeroportos em ordem alfabética, 'SBBR-SBRF'; conta rotas sem duplicar por sentido"}
-  - {name: voos_azul, type: BIGINT, nullable: false, description: Voos realizados da Azul no mês}
+  - {name: voos_azul, type: BIGINT, nullable: false, description: Voos realizados do grupo Azul (AZU + ACN) no mês}
   - {name: voos_3m, type: BIGINT, nullable: false, description: Voos nos 3 meses m-2..m (a janela inicial pode ter menos de 3 meses de histórico)}
   - {name: voos_3m_ano_anterior, type: BIGINT, nullable: true, description: Voos nos mesmos 3 meses do ano anterior; nulo sem 12 meses de histórico}
   - {name: variacao_pct_queda_3m, type: "DECIMAL(7,2)", nullable: true, unit: "%", description: "100 x (ano anterior - atual) / ano anterior; positivo = queda; nulo se base zero/ausente"}
   - {name: voos_par_3m, type: BIGINT, nullable: false, description: Voos da Azul nos 3 meses m-2..m somando os dois sentidos do par_rota}
   - {name: voos_par_3m_ano_anterior, type: BIGINT, nullable: true, description: Mesma soma nos mesmos 3 meses do ano anterior; nulo sem 12 meses de histórico}
-  - {name: saida_total, type: BOOLEAN, nullable: false, description: "Nível do par (igual nos dois sentidos): >= 30 voos da Azul nos mesmos 3 meses do ano anterior e zero em m-2..m"}
+  - {name: saida_total, type: BOOLEAN, nullable: false, description: "Nível do par (igual nos dois sentidos): >= 30 voos do grupo Azul nos mesmos 3 meses do ano anterior (m-14..m-12), zero em m-2..m e >= 6 meses ativos (com voo) antes de mes_saida. Só vale a partir de mes_saida+2"}
   - {name: mes_saida, type: VARCHAR(7), nullable: true, description: "Primeiro mês zerado do par (mês seguinte ao último voo da Azul), AAAA-MM; só preenchido quando saida_total"}
   - {name: reducao, type: BOOLEAN, nullable: false, description: Queda >= 30% vs mesmos 3 meses do ano anterior (base > 0, voos atuais > 0); exclusiva de saida_total}
 quality:
   - saida_total e reducao nunca são verdadeiras juntas
+  - saida_total só com mes_saida preenchido e ano_mes >= mes_saida + 2 meses
+  - 24 meses contíguos (2024-09 a 2026-08), validado no build
   - grão único

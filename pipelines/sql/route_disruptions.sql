@@ -8,13 +8,13 @@ SELECT
     origem_icao,
     destino_icao,
     empresa_icao,
-    COUNT(*) AS voos_previstos,
-    SUM(CASE WHEN situacao_voo = 'REALIZADO' THEN 1 ELSE 0 END) AS voos_realizados,
-    SUM(CASE WHEN situacao_voo = 'CANCELADO' THEN 1 ELSE 0 END) AS voos_cancelados,
-    SUM(CASE WHEN situacao_voo = 'REALIZADO' AND atraso_partida_min > 30 THEN 1 ELSE 0 END) AS voos_atraso_30,
-    ROUND(100.0 * SUM(CASE WHEN situacao_voo = 'REALIZADO' AND atraso_partida_min > 30 THEN 1 ELSE 0 END)
-          / NULLIF(SUM(CASE WHEN situacao_voo = 'REALIZADO' THEN 1 ELSE 0 END), 0), 2) AS pct_atraso_30,
-    ROUND(100.0 * SUM(CASE WHEN situacao_voo = 'CANCELADO' THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct_cancelado
+    CAST(COUNT(*) AS BIGINT) AS voos_previstos,
+    CAST(SUM(CASE WHEN situacao_voo = 'REALIZADO' THEN 1 ELSE 0 END) AS BIGINT) AS voos_realizados,
+    CAST(SUM(CASE WHEN situacao_voo = 'CANCELADO' THEN 1 ELSE 0 END) AS BIGINT) AS voos_cancelados,
+    CAST(SUM(CASE WHEN situacao_voo = 'REALIZADO' AND atraso_partida_min > 30 THEN 1 ELSE 0 END) AS BIGINT) AS voos_atraso_30,
+    CAST(ROUND(100.0 * SUM(CASE WHEN situacao_voo = 'REALIZADO' AND atraso_partida_min > 30 THEN 1 ELSE 0 END)
+          / NULLIF(SUM(CASE WHEN situacao_voo = 'REALIZADO' THEN 1 ELSE 0 END), 0), 2) AS DECIMAL(6,2)) AS pct_atraso_30,
+    CAST(ROUND(100.0 * SUM(CASE WHEN situacao_voo = 'CANCELADO' THEN 1 ELSE 0 END) / COUNT(*), 2) AS DECIMAL(6,2)) AS pct_cancelado
 FROM silver.anac_vra
 WHERE tipo_linha = 'N'
   AND codigo_di = '0'

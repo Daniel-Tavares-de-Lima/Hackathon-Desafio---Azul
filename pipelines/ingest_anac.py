@@ -32,7 +32,7 @@ def load_env(path=ROOT / ".env"):
 load_env()
 BRONZE = ROOT / os.environ.get("BRONZE_DIR", "data/bronze")
 SILVER = ROOT / os.environ.get("SILVER_DIR", "data/silver")
-END_MONTH = os.environ.get("ANAC_END_MONTH", "2026-09")  # fim da janela alvo (AAAA-MM)
+END_MONTH = os.environ.get("ANAC_END_MONTH", "2026-08")  # fim da janela alvo (AAAA-MM)
 N_MONTHS = int(os.environ.get("ANAC_MONTHS", "24"))
 
 # Prefixos ICAO de aerodromos brasileiros. Rota domestica = origem E destino com esses prefixos.

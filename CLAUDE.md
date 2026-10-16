@@ -8,7 +8,7 @@ Cliente de alto valor não vai embora do nada: vai embora por uma ameaça concre
 três ameaças visíveis em dados públicos e age antes, com aprovação humana:
 - A · ATRASO: voo atrasado/cancelado (ANAC VRA) atingiu cliente de alto valor.
 - B · ROTA ÓRFÃ: a Azul saiu ou reduziu frequência numa rota que o cliente voava (ANAC estatístico).
-- C · ESCUDO DE ROTA: concorrente entrou na rota ou derrubou a tarifa (ANAC microdados de tarifas).
+- C · ESCUDO DE ROTA: concorrente derrubou a tarifa no par (ANAC microdados de tarifas).
 Prioridade: base (score, evasão, personas, agente) + A + B obrigatórios; C muito desejável; uplift só se sobrar tempo até 17/10.
 
 Você é o ORQUESTRADOR (PM + Tech Lead). Não implementa sozinho: delega aos subagentes em
