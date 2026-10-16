@@ -1,6 +1,6 @@
 table: silver.synthetic_customer_threats
 layer: silver
-version: 2
+version: 3
 description: >
   Ameaças que atingiram clientes NO HISTÓRICO (mês da ameaça <= 2026-02, corte em 2026-02-28). Consumida pelo Radar e
   pode ser entrada de modelo. As ameaças do período de rótulo (mar a ago/2026) ficam em synthetic_customer_threats_rotulo
@@ -9,6 +9,10 @@ description: >
   premissa P-12); B = par com saída total ou redução do grupo Azul (AZU + ACN) em gold.route_exits; C = queda de tarifa
   de concorrente (queda_tarifa) em gold.route_competition. B e C ligam o cliente que voou o par nos 12 meses até o mês da
   ameaça (premissa P-12). B e C são raros nas gold aprovadas e não foram inflados.
+  v3 (observabilidade): só entra aqui a ameaça já observável na gold até o corte. Em reducao e queda_tarifa a flag do mês
+  usa só dados até aquele mês. Em saida_total, data_ameaca/ano_mes seguem em mes_saida (o que o cliente sentiu), mas a
+  inclusão exige que o 1º mês com saida_total marcada na gold (>= mes_saida+2) seja <= 2026-02; se não, a linha vai
+  para synthetic_customer_threats_rotulo.
 produced_by: pipelines/synthetic/generate.py
 sources: [silver.synthetic_viagens, gold.route_disruptions, gold.route_exits, gold.route_competition]
 storage:
@@ -29,4 +33,5 @@ quality:
   - tipo_ameaca em (A, B, C)
   - A tem viagem_id; B e C não
   - data_ameaca <= data de corte (asserção no gerador)
+  - saida_total só com 1º mês da flag saida_total na gold <= mês do corte (asserção no gerador contra gold.route_exits)
   - sem redução antes de 2025-11 nem queda de tarifa antes de 2025-10 (limitação das gold, premissa P-12)

@@ -68,7 +68,7 @@ Casa e pares saem da mesma fonte: assentos vendidos pela Azul em `silver.anac_ta
 
 ## Cobertura das ameaças (clientes distintos)
 
-Duas tabelas: `synthetic_customer_threats` (histórico, mês <= 2026-02; entrada do modelo e do Radar) e `synthetic_customer_threats_rotulo` (período de rótulo, 2026-03 a 2026-08; nunca entrada de modelo). A = ameaça A grave: 2 eventos de atraso de partida > 60 min ou cancelamento em até 90 dias, data do 2º evento; B e C = pares reais de `gold.route_exits` e `gold.route_competition` em que o cliente voou nos 12 meses até o mês da ameaça. C é só `queda_tarifa` (a entrada de concorrente saiu da gold, P-05).
+Duas tabelas: `synthetic_customer_threats` (histórico, mês <= 2026-02; entrada do modelo e do Radar) e `synthetic_customer_threats_rotulo` (período de rótulo, 2026-03 a 2026-08, mais as saídas totais com mes_saida no histórico cuja flag na gold só aparece depois do corte; nunca entrada de modelo). A = ameaça A grave: 2 eventos de atraso de partida > 60 min ou cancelamento em até 90 dias, data do 2º evento; B e C = pares reais de `gold.route_exits` e `gold.route_competition` em que o cliente voou nos 12 meses até o mês da ameaça. C é só `queda_tarifa` (a entrada de concorrente saiu da gold, P-05).
 
 | Tipo | Detalhe | Tabela | Eventos | Clientes | Primeiro mês | Último mês |
 |---|---|---|---|---|---|---|
@@ -76,8 +76,8 @@ Duas tabelas: `synthetic_customer_threats` (histórico, mês <= 2026-02; entrada
 | A | grave_2_eventos_90d | customer_threats_rotulo | 1084 | 997 | 2026-03 | 2026-08 |
 | B | reducao | customer_threats | 2596 | 2582 | 2025-11 | 2026-02 |
 | B | reducao | customer_threats_rotulo | 4566 | 4227 | 2026-03 | 2026-08 |
-| B | saida_total | customer_threats | 823 | 815 | 2025-04 | 2026-01 |
-| B | saida_total | customer_threats_rotulo | 118 | 118 | 2026-03 | 2026-04 |
+| B | saida_total | customer_threats | 792 | 785 | 2025-04 | 2025-11 |
+| B | saida_total | customer_threats_rotulo | 149 | 149 | 2025-07 | 2026-04 |
 | C | queda_tarifa | customer_threats | 1674 | 1647 | 2025-10 | 2026-02 |
 | C | queda_tarifa | customer_threats_rotulo | 2545 | 2513 | 2026-03 | 2026-08 |
 
@@ -89,7 +89,7 @@ Por nível vigente em 2026-02-28 (hist. = `synthetic_customer_threats`; todos = 
 |---|---|---|---|---|---|---|---|
 | Diamante Unique | 161 | 139 | 15 | 6 | 143 | 27 | 12 |
 | Diamante | 863 | 462 | 88 | 42 | 522 | 170 | 77 |
-| Safira | 6826 | 1235 | 696 | 371 | 1575 | 1550 | 806 |
+| Safira | 6826 | 1235 | 692 | 371 | 1575 | 1550 | 806 |
 
 ## Taxa de evasão por ameaça dentro de cada faixa de frequência (entre elegíveis)
 
@@ -101,8 +101,8 @@ Elegíveis: 13825 (trechos esperados em 6 meses >= 3); não elegíveis (rótulo 
 | A grave (2 eventos em 90 dias) (+8 pp) | média | 186 | 36.6% | 28.5% | +8.0 |
 | A grave (2 eventos em 90 dias) (+8 pp) | alta | 638 | 23.8% | 15.9% | +7.9 |
 | B saída total na rota favorita (+20 pp) | baixa | 16 | 56.2% | 39.6% | +16.7 |
-| B saída total na rota favorita (+20 pp) | média | 17 | 76.5% | 28.7% | +47.8 |
-| B saída total na rota favorita (+20 pp) | alta | 28 | 57.1% | 16.7% | +40.4 |
+| B saída total na rota favorita (+20 pp) | média | 15 | 73.3% | 28.7% | +44.6 |
+| B saída total na rota favorita (+20 pp) | alta | 25 | 64.0% | 16.7% | +47.3 |
 | B redução na rota favorita (+8 pp) | baixa | 247 | 47.8% | 39.1% | +8.7 |
 | B redução na rota favorita (+8 pp) | média | 314 | 36.3% | 28.3% | +8.0 |
 | B redução na rota favorita (+8 pp) | alta | 303 | 24.4% | 16.4% | +8.0 |
@@ -120,7 +120,7 @@ Delta efetivo = média das diferenças por faixa ponderada pelos expostos de cad
 | Ameaça | Nominal (pp) | Expostos | Delta efetivo (pp) | Bruto (pp) |
 |---|---|---|---|---|
 | A grave (2 eventos em 90 dias) | +8 | 912 | +7.9 | +0.8 |
-| B saída total na rota favorita | +20 | 61 | +36.3 | +34.6 |
+| B saída total na rota favorita | +20 | 56 | +37.8 | +36.6 |
 | B redução na rota favorita | +8 | 864 | +8.2 | +8.1 |
 | C queda de tarifa na rota favorita | +10 | 486 | +10.5 | +10.6 |
 | Perto de cair de nível | +6 | 5423 | +5.9 | +9.4 |

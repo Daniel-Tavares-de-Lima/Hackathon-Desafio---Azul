@@ -14,7 +14,7 @@ export ANAC_END_MONTH ANAC_MONTHS
 
 .PHONY: all venv ingest ingest-tarifas ingest-vra gold synthetic test
 
-all: ingest gold synthetic
+all: ingest gold synthetic test
 
 $(PY):
 	python -m venv .venv
@@ -36,5 +36,5 @@ gold: ingest
 synthetic: gold
 	$(PY) -I pipelines/synthetic/generate.py
 
-test: $(PY)
+test: synthetic
 	$(PY) -I tests/test_contratos.py

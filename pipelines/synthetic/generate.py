@@ -127,15 +127,16 @@ def carrega(con):
     # saida total por par: de mes_saida ate o mes anterior ao retorno (1o mes seguinte com voo do grupo Azul em gold.route_exits)
     # a Azul nao vende nem voa no par; sem retorno na janela, fica fora ate o fim. Pares so da ACN (sem venda AZU na ANAC
     # Tarifas) nao tem pid e ficam fora do sintetico (P-08, P-15).
-    ex = con.execute(f"SELECT DISTINCT par_rota, {mi('mes_saida')} ms FROM route_exits WHERE saida_total").df()
+    # obs = 1o mes em que a gold marca saida_total (>= mes_saida+2): so a partir dele a saida e observavel (P-12)
+    ex = con.execute(f"SELECT par_rota, {mi('mes_saida')} ms, MIN({mi()}) obs FROM route_exits WHERE saida_total GROUP BY ALL").df()
     vp = con.execute(f"SELECT par_rota, {mi()} t FROM route_exits GROUP BY ALL HAVING SUM(voos_azul) > 0").df()
     ex = ex.merge(vp, on="par_rota", how="left")
     ex["t"] = np.where(ex["t"] > ex["ms"], ex["t"], NM)
-    ex = ex.groupby(["par_rota", "ms"], as_index=False)["t"].min().rename(columns={"t": "volta"})
+    ex = ex.groupby(["par_rota", "ms", "obs"], as_index=False)["t"].min().rename(columns={"t": "volta"})
     ex["pid"] = ex["par_rota"].map(f["pid_de"])
     f["saidas_gold"] = ex
-    ex = ex.dropna(subset=["pid"]).astype({"pid": int, "ms": int, "volta": int}).sort_values(["pid", "ms"])
-    f["saidas"] = ex[["pid", "ms"]].reset_index(drop=True)
+    ex = ex.dropna(subset=["pid"]).astype({"pid": int, "ms": int, "obs": int, "volta": int}).sort_values(["pid", "ms"])
+    f["saidas"] = ex[["pid", "ms", "obs"]].reset_index(drop=True)
     off = np.zeros((P, NM), bool)
     for p_, m_, v_ in ex[["pid", "ms", "volta"]].itertuples(index=False):
         off[p_, m_:v_] = True
@@ -347,7 +348,9 @@ def fidelidade(Lh, cliente_ids, rng):
 
 
 def ameacas_bc(lp, f):
-    """Ameacas B e C: cliente voou o par nos 12 meses ate o mes da ameaca. Uma linha por cliente x par x episodio."""
+    """Ameacas B e C: cliente voou o par nos 12 meses ate o mes da ameaca. Uma linha por cliente x par x episodio.
+    obs = mes em que a ameaca fica observavel na gold: o proprio mes em reducao e queda_tarifa (flag de m so usa dados ate m);
+    em saida_total, o 1o mes com a flag (>= mes_saida+2), enquanto m continua sendo mes_saida."""
     saida = []
     for det, fm in (("reducao", f["reducao"]), ("queda_tarifa", f["queda"])):
         fm = fm.drop_duplicates().sort_values(["pid", "m"]).copy()
@@ -355,12 +358,12 @@ def ameacas_bc(lp, f):
         x = lp[lp["pid"].isin(fm["pid"].unique())].merge(fm, on="pid")
         x = x[(x["m"] - x["t"] >= 0) & (x["m"] - x["t"] <= 11)]
         g = x.groupby(["c", "pid", "run"], as_index=False)["m"].min()
-        saida.append(g.assign(tipo="C" if det == "queda_tarifa" else "B", detalhe=det)[["c", "pid", "m", "tipo", "detalhe"]])
+        saida.append(g.assign(tipo="C" if det == "queda_tarifa" else "B", detalhe=det, obs=g["m"])[["c", "pid", "m", "tipo", "detalhe", "obs"]])
     ex = f["saidas"].drop_duplicates()
     x = lp[lp["pid"].isin(ex["pid"].unique())].merge(ex, on="pid")
     x = x[(x["ms"] - x["t"] >= 1) & (x["ms"] - x["t"] <= 12)]
-    g = x.groupby(["c", "pid", "ms"], as_index=False).size().rename(columns={"ms": "m"})
-    saida.append(g.assign(tipo="B", detalhe="saida_total")[["c", "pid", "m", "tipo", "detalhe"]])
+    g = x.groupby(["c", "pid", "ms", "obs"], as_index=False).size().rename(columns={"ms": "m"})
+    saida.append(g.assign(tipo="B", detalhe="saida_total")[["c", "pid", "m", "tipo", "detalhe", "obs"]])
     return pd.concat(saida, ignore_index=True)
 
 
@@ -414,7 +417,7 @@ def main():
     cp = voadas_h.groupby(["c", "pid"]).size().reset_index(name="n").sort_values(["c", "n", "pid"], ascending=[True, False, True])
     fav = np.full(N, -1); cpu = cp.drop_duplicates("c"); fav[cpu["c"].to_numpy()] = cpu["pid"].to_numpy()
     bc_h = ameacas_bc(voadas_h[["c", "pid", "t"]].drop_duplicates(), f)
-    bc_h = bc_h[(bc_h["m"] >= T6) & (bc_h["m"] < T_HIST)]
+    bc_h = bc_h[(bc_h["m"] >= T6) & (bc_h["obs"] < T_HIST)]      # obs >= m: so entra o que ja era observavel no corte
     bc_h = bc_h[bc_h["pid"].to_numpy() == fav[bc_h["c"].to_numpy()]]
     flag = {d: np.zeros(N, bool) for d in ("saida_total", "reducao", "queda_tarifa")}
     for d in flag:
@@ -500,16 +503,18 @@ def main():
     ta = pd.DataFrame(dict(
         cliente_id=a["cliente_id"], tipo_ameaca="A", ano_mes=a["ano_mes"], data_ameaca=a["data"],
         par_rota=a["par_rota"], origem_icao=a["origem_icao"], destino_icao=a["destino_icao"],
-        detalhe="grave_2_eventos_90d", viagem_id=a["viagem_id"], _t=a["t"]))
+        detalhe="grave_2_eventos_90d", viagem_id=a["viagem_id"], _t=a["t"], _obs=a["t"]))
     bc = ameacas_bc(voadas[["c", "pid", "t"]].drop_duplicates(), f)
     tb = pd.DataFrame(dict(
         cliente_id=ids[bc["c"].to_numpy()], tipo_ameaca=bc["tipo"], ano_mes=np.array(MESES)[bc["m"].to_numpy()],
         data_ameaca=INICIO_MES[bc["m"].to_numpy()], par_rota=f["par_nomes"][bc["pid"].to_numpy()],
-        origem_icao=None, destino_icao=None, detalhe=bc["detalhe"], viagem_id=None, _t=bc["m"]))
+        origem_icao=None, destino_icao=None, detalhe=bc["detalhe"], viagem_id=None, _t=bc["m"], _obs=bc["obs"]))
     amea = pd.concat([ta, tb], ignore_index=True)
-    amea["periodo"] = np.where(amea["_t"] < T_HIST, "historico", "rotulo")   # so interno (relatorio); vira duas tabelas
+    # so interno (relatorio); vira duas tabelas. Historico = mes da ameaca E mes de observabilidade <= corte: saida total
+    # com mes_saida no historico mas flag da gold so depois do corte vai para o rotulo (data_ameaca continua mes_saida)
+    amea["periodo"] = np.where((amea["_t"] < T_HIST) & (amea["_obs"] < T_HIST), "historico", "rotulo")
     chave_amea = ["cliente_id", "data_ameaca", "tipo_ameaca", "detalhe", "par_rota", "viagem_id"]
-    amea = amea.drop(columns="_t").sort_values(chave_amea, kind="stable", na_position="first").reset_index(drop=True)
+    amea = amea.drop(columns=["_t", "_obs"]).sort_values(chave_amea, kind="stable", na_position="first").reset_index(drop=True)
     hist_amea = amea["periodo"] == "historico"
 
     fid_out = fid.drop(columns=["_niv", "_folga"])
@@ -523,7 +528,14 @@ def main():
     assert clientes["cliente_id"].is_unique and L["viagem_id"].is_unique and rot["cliente_id"].is_unique
     assert not any("arquetipo" in c for n_, d_ in saidas.items() if n_ != "archetypes_validacao" for c in d_.columns)
     assert hist["data"].max() <= CORTE and fut["data"].min() > CORTE and (L["tarifa"] > 0).all()
-    assert saidas["customer_threats"]["data_ameaca"].max() <= CORTE and saidas["customer_threats_rotulo"]["data_ameaca"].min() > CORTE
+    rot_amea = saidas["customer_threats_rotulo"]
+    assert saidas["customer_threats"]["data_ameaca"].max() <= CORTE
+    # conferencia direta na gold: toda saida total da tabela de entrada ja tinha a flag marcada ate o ultimo mes do historico
+    st = saidas["customer_threats"].query("detalhe == 'saida_total'")[["par_rota", "ano_mes"]].drop_duplicates()
+    sg_ = f["saidas_gold"].assign(ano_mes=lambda d: np.array(MESES)[d["ms"].to_numpy()])
+    st = st.merge(sg_, on=["par_rota", "ano_mes"], how="left")
+    assert st["obs"].notna().all() and (st["obs"] < T_HIST).all(), "saida total na entrada com flag so depois do corte"
+    assert ((rot_amea["data_ameaca"] > CORTE) | (rot_amea["detalhe"] == "saida_total")).all()   # unica excecao: saida total observavel so apos o corte
     assert set(amea["tipo_ameaca"]) <= {"A", "B", "C"} and fid_out.groupby("cliente_id").size().eq(len(ANOS)).all()
     for nome, df in saidas.items():
         out = SILVER / f"synthetic_{nome}" / "data.parquet"
@@ -691,7 +703,7 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
            + ", ".join(f"{r.par_rota} ({MESES[int(r.ms)]} → {MESES[int(r.volta)]})" for r in sg_v.sort_values("par_rota").itertuples()) + ".",
            "", "## Cobertura das ameaças (clientes distintos)", "",
            f"Duas tabelas: `synthetic_customer_threats` (histórico, mês <= {MESES[T_HIST - 1]}; entrada do modelo e do Radar) e `synthetic_customer_threats_rotulo` "
-           f"(período de rótulo, {MESES[T_HIST]} a {MESES[-1]}; nunca entrada de modelo). A = ameaça A grave: 2 eventos de atraso de partida > 60 min ou cancelamento em até 90 dias, data do 2º evento; "
+           f"(período de rótulo, {MESES[T_HIST]} a {MESES[-1]}, mais as saídas totais com mes_saida no histórico cuja flag na gold só aparece depois do corte; nunca entrada de modelo). A = ameaça A grave: 2 eventos de atraso de partida > 60 min ou cancelamento em até 90 dias, data do 2º evento; "
            "B e C = pares reais de `gold.route_exits` e `gold.route_competition` em que o cliente voou nos 12 meses até o mês da ameaça. C é só `queda_tarifa` (a entrada de concorrente saiu da gold, P-05).",
            "", "| Tipo | Detalhe | Tabela | Eventos | Clientes | Primeiro mês | Último mês |", "|---|---|---|---|---|---|---|"]
     for r in det.itertuples():
