@@ -1,7 +1,6 @@
 """Contratos x Parquet real: colunas iguais (mesma ordem), tipo compatível e zero NULL em coluna nullable: false.
 
 Uso: python -I tests/test_contratos.py   (também roda com pytest, se instalado)
-Para cobrir a base sintética depois da Etapa 2, inclua "synthetic_*.yaml" em PADROES.
 """
 import sys
 from pathlib import Path
@@ -10,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))  # -I tira o diretório do script do sys.path
 from build_gold import checar_contrato  # noqa: E402
 
-PADROES = ["silver_*.yaml", "gold_*.yaml"]
+PADROES = ["silver_*.yaml", "gold_*.yaml", "synthetic_*.yaml"]
 
 
 def test_contratos():

@@ -1,11 +1,13 @@
-"""Gemeo digital da base de clientes: 50 mil clientes ficticios, viagens, nivel de fidelidade, ameacas e rotulos.
+"""Gemeo digital da base de clientes: 50 mil clientes ficticios, viagens, nivel de fidelidade, ameacas (historico e rotulo separados), elegibilidade e alvos.
 
 Uso: python -I -X utf8 pipelines/synthetic/generate.py
 Entradas : data/silver/anac_{tarifas,vra} e data/gold/route_{disruptions,exits,competition} (so leitura).
 Saidas   : data/silver/synthetic_*/data.parquet e docs/VALIDACAO_SINTETICO.md.
 Premissas: docs/PREMISSAS.md (P-06 em diante). Tudo e sintetico por construcao: o gerador devolve as regras
 que ele mesmo usa (circularidade, ver P-06).
-Janela: indice de mes 0 = 2024-09 ... 17 = 2026-02 (historico, 18 meses); 18 = 2026-03 ... 23 = 2026-08 (rotulo).
+Janela: derivada de ANAC_END_MONTH (padrao 2026-08) e ANAC_MONTHS (padrao 24), as mesmas variaveis das gold. Os ultimos
+T_ROT = 6 meses sao o periodo de rotulo; os anteriores, o historico. Padrao: indice 0 = 2024-09 ... 17 = 2026-02
+(historico, corte em 2026-02-28); 18 = 2026-03 ... 23 = 2026-08 (rotulo).
 """
 import math
 import os
@@ -26,15 +28,19 @@ GOLD = ROOT / os.environ.get("GOLD_DIR", "data/gold")
 
 SEED = 20261017
 N = 50_000
-NM = 24                      # meses da janela ANAC
-T_HIST = 18                  # meses 0..17 = historico; 18..23 = rotulo
-CORTE = np.datetime64("2026-02-28")
-MESES = [f"{2024 + (8 + i) // 12}-{(8 + i) % 12 + 1:02d}" for i in range(NM)]
-INICIO_MES = np.array([np.datetime64(m + "-01") for m in MESES], dtype="datetime64[D]")
-DIAS_MES = np.append(np.diff(INICIO_MES).astype(int), 31)
-FIM_JANELA = np.datetime64("2026-08-31")
+# ---- janela (P-06): mesmas variaveis de ambiente das gold (pipelines/build_gold.py) ----
+END_MONTH = os.environ.get("ANAC_END_MONTH", "2026-08")   # ultimo mes da janela ANAC
+NM = int(os.environ.get("ANAC_MONTHS", "24"))             # meses da janela
+T_ROT = 6                                                 # ultimos 6 meses = periodo de rotulo
+T_HIST = NM - T_ROT                                       # meses 0..T_HIST-1 = historico
+MES0 = np.datetime64(END_MONTH, "M") - np.timedelta64(NM - 1, "M")   # indice de mes 0 (2024-09 no padrao)
+fim_mes = lambda k: (MES0 + np.timedelta64(k + 1, "M")).astype("datetime64[D]") - np.timedelta64(1, "D")   # ultimo dia do mes de indice k
+MESES = [str(MES0 + np.timedelta64(i, "M")) for i in range(NM)]
+INICIO_MES = (MES0 + np.arange(NM)).astype("datetime64[D]")
+CORTE = fim_mes(T_HIST - 1)                               # fim do historico (2026-02-28 no padrao)
+FIM_JANELA = fim_mes(NM - 1)                              # fim do periodo de rotulo (2026-08-31 no padrao)
 
-# ---- premissas (cada uma documentada em docs/PREMISSAS.md, P-06 a P-14) ----
+# ---- premissas (cada uma documentada em docs/PREMISSAS.md, P-06 a P-15) ----
 ARQ = ["corporativo_frequente", "lazer_premium", "regional_dependente", "em_ascensao", "ocasional"]
 MIX = np.array([0.08, 0.10, 0.18, 0.15, 0.49])
 LAMBDA_MEDIA = np.array([0.9, 0.25, 0.28, 0.20, 0.12])   # eventos (ida e volta) por mes
@@ -71,7 +77,16 @@ NIVEIS = ["Sem nível", "Topázio", "Safira", "Diamante", "Diamante Unique"]
 # caminhos alternativos (OU); dentro do caminho, todos os requisitos (E): (trechos, pontos, gasto R$)
 REGRAS = {1: [(6, None, None), (None, 6000, None)], 2: [(10, None, None), (None, 10000, None)],
           3: [(12, 12000, None), (None, None, 25000)], 4: [(26, 26000, None), (None, None, 50000)]}
-ANOS = [(2024, 0, 3, "2024-12-31", False), (2025, 4, 15, "2025-12-31", True), (2026, 16, 17, "2026-02-28", False)]
+# anos calendario do historico: (ano, 1o indice, ultimo indice, referencia_ate, ano_completo); padrao 2024 (set-dez), 2025, 2026 (jan-fev)
+ANOS = [(y, min(i), max(i), fim_mes(max(i)), len(i) == 12)
+        for y in sorted({int(m[:4]) for m in MESES[:T_HIST]}) for i in [[k for k in range(T_HIST) if int(MESES[k][:4]) == y]]]
+ANO_COMPLETO = max(a[0] for a in ANOS if a[4])           # ultimo ano completo do historico (2025): base do "perto de cair de nivel"
+
+
+def mi(col="ano_mes"):
+    """SQL: 'AAAA-MM' -> indice de mes da janela (0 = MES0)."""
+    m0 = MES0.astype(int)   # meses desde 1970-01
+    return f"((CAST(substr({col},1,4) AS INT)-1970)*12 + CAST(substr({col},6,2) AS INT) - 1 - {m0})"
 
 
 def uuids(rng, n):
@@ -86,12 +101,14 @@ def carrega(con):
     for t in ("route_disruptions", "route_exits", "route_competition"):
         p = (GOLD / t / "data.parquet").as_posix()
         con.execute(f"CREATE VIEW {t} AS SELECT * FROM read_parquet('{p}')")
-    mi = "(CAST(substr(ano_mes,1,4) AS INT)-2024)*12 + CAST(substr(ano_mes,6,2) AS INT) - 9"
+    for t in ("route_exits", "route_competition", "route_disruptions"):
+        got = con.execute(f"SELECT min(ano_mes), max(ano_mes) FROM {t}").fetchone()
+        assert got == (MESES[0], MESES[-1]), f"gold.{t} cobre {got}, janela do gerador {MESES[0]}..{MESES[-1]}"
     par = "CASE WHEN origem_icao<destino_icao THEN origem_icao||'-'||destino_icao ELSE destino_icao||'-'||origem_icao END"
     f = {}
     # distribuicao empirica de tarifa da Azul por par x mes (chave = id do grupo + CDF acumulada por assentos)
     g = con.execute(f"""
-        WITH b AS (SELECT {par} par, {mi} t, tarifa::DOUBLE tarifa, SUM(assentos) a FROM anac_tarifas
+        WITH b AS (SELECT {par} par, {mi()} t, tarifa::DOUBLE tarifa, SUM(assentos) a FROM anac_tarifas
                    WHERE empresa_icao='AZU' GROUP BY ALL)
         SELECT dense_rank() OVER (ORDER BY par)-1 pid, t, tarifa,
                SUM(a) OVER (PARTITION BY par, t ORDER BY tarifa) * 1.0 / SUM(a) OVER (PARTITION BY par, t) cdf, par
@@ -107,21 +124,28 @@ def carrega(con):
     tem = np.zeros((P, NM), bool)
     tem[g["pid"].to_numpy(), g["t"].to_numpy()] = True
     f["tem"] = tem
-    # saida total por par: mes da saida (indice), a partir daqui a Azul nao voa mais
-    ex = con.execute(f"SELECT par_rota, {mi.replace('ano_mes', 'mes_saida')} ms FROM route_exits WHERE saida_total AND mes_saida IS NOT NULL GROUP BY ALL").df()
+    # saida total por par: de mes_saida ate o mes anterior ao retorno (1o mes seguinte com voo do grupo Azul em gold.route_exits)
+    # a Azul nao vende nem voa no par; sem retorno na janela, fica fora ate o fim. Pares so da ACN (sem venda AZU na ANAC
+    # Tarifas) nao tem pid e ficam fora do sintetico (P-08, P-15).
+    ex = con.execute(f"SELECT DISTINCT par_rota, {mi('mes_saida')} ms FROM route_exits WHERE saida_total").df()
+    vp = con.execute(f"SELECT par_rota, {mi()} t FROM route_exits GROUP BY ALL HAVING SUM(voos_azul) > 0").df()
+    ex = ex.merge(vp, on="par_rota", how="left")
+    ex["t"] = np.where(ex["t"] > ex["ms"], ex["t"], NM)
+    ex = ex.groupby(["par_rota", "ms"], as_index=False)["t"].min().rename(columns={"t": "volta"})
     ex["pid"] = ex["par_rota"].map(f["pid_de"])
-    f["saidas"] = ex.dropna(subset=["pid"]).astype({"pid": int})[["pid", "ms"]]
-    saida_t = np.full(P, 99)
-    for p_, m_ in f["saidas"].itertuples(index=False):
-        saida_t[p_] = min(saida_t[p_], m_)
-    f["saida_t"] = saida_t
-    f["avail"] = tem & (np.arange(NM)[None, :] < saida_t[:, None])
+    f["saidas_gold"] = ex
+    ex = ex.dropna(subset=["pid"]).astype({"pid": int, "ms": int, "volta": int}).sort_values(["pid", "ms"])
+    f["saidas"] = ex[["pid", "ms"]].reset_index(drop=True)
+    off = np.zeros((P, NM), bool)
+    for p_, m_, v_ in ex[["pid", "ms", "volta"]].itertuples(index=False):
+        off[p_, m_:v_] = True
+    f["off"] = off
     for nome, tab, col in (("reducao", "route_exits", "reducao"), ("queda", "route_competition", "queda_tarifa")):
-        d = con.execute(f"SELECT par_rota, {mi} m FROM {tab} WHERE {col} GROUP BY ALL").df()
+        d = con.execute(f"SELECT par_rota, {mi()} m FROM {tab} WHERE {col} GROUP BY ALL ORDER BY ALL").df()
         d["pid"] = d["par_rota"].map(f["pid_de"])
         f[nome] = d.dropna(subset=["pid"]).astype({"pid": int})[["pid", "m"]]
     # pesos de destino por origem x mes (assentos da Azul por rota direcional)
-    dr = con.execute(f"""SELECT origem_icao o, destino_icao d, {par} par, {mi} t, SUM(assentos)::DOUBLE s, SUM(assentos*tarifa)::DOUBLE fs
+    dr = con.execute(f"""SELECT origem_icao o, destino_icao d, {par} par, {mi()} t, SUM(assentos)::DOUBLE s, SUM(assentos*tarifa)::DOUBLE fs
                          FROM anac_tarifas WHERE empresa_icao='AZU' GROUP BY ALL""").df()
     aer = sorted(set(dr["o"]) | set(dr["d"]))
     f["aer"] = np.array(aer)
@@ -140,23 +164,23 @@ def carrega(con):
     pp = dr.drop_duplicates(["o", "d"])
     dest_pid[pp["o"].map(hidx), pp["slot"]] = pp["par"].map(f["pid_de"])
     dest_air[pp["o"].map(hidx), pp["slot"]] = pp["d"].map(aidx)
-    W *= (np.arange(NM)[None, :, None] < saida_t[dest_pid][:, None, :])       # par sem Azul apos a saida total
+    W *= ~off[dest_pid].transpose(0, 2, 1)                                    # par sem Azul entre a saida total e o retorno
     f.update(homes=np.array(homes), home_air=np.array([aidx[a] for a in homes]), W=W, dest_pid=dest_pid,
              dest_air=dest_air, tarifa_media_slot=np.where(stot > 0, ftot / np.maximum(stot, 1), 0.0))
-    vo = con.execute("""SELECT origem_icao, COUNT(*) FROM anac_vra WHERE empresa_icao='AZU' AND tipo_linha='N' AND codigo_di='0'
-                        AND situacao_voo IN ('REALIZADO','CANCELADO') AND ano_mes <= '2026-02' GROUP BY 1""").df()
+    vo = con.execute(f"""SELECT origem_icao, COUNT(*) FROM anac_vra WHERE empresa_icao='AZU' AND tipo_linha='N' AND codigo_di='0'
+                        AND situacao_voo IN ('REALIZADO','CANCELADO') AND ano_mes <= '{MESES[T_HIST - 1]}' GROUP BY 1""").df()
     vo = vo.set_index("origem_icao")["count_star()"]
     f["voos_origem"] = vo
     f["peso_home"] = stot.sum(1)                                   # casa por assentos da Azul (tarifas), mesma fonte das rotas
     # taxas de cancelamento e atraso > 30 por rota direcional x mes (Azul)
     A = len(aer)
     rc = np.full((A, A, NM), np.nan, np.float32); rl = rc.copy()
-    d = con.execute(f"SELECT origem_icao o, destino_icao d, {mi} t, pct_cancelado/100 c, pct_atraso_30/100 l FROM route_disruptions WHERE empresa_icao='AZU'").df()
+    d = con.execute(f"SELECT origem_icao o, destino_icao d, {mi()} t, pct_cancelado::DOUBLE/100 c, pct_atraso_30::DOUBLE/100 l FROM route_disruptions WHERE empresa_icao='AZU'").df()
     d = d[d["o"].isin(aidx) & d["d"].isin(aidx)]
     io, idd, it = d["o"].map(aidx).to_numpy(), d["d"].map(aidx).to_numpy(), d["t"].to_numpy()
     rc[io, idd, it] = d["c"].astype(float).to_numpy(); rl[io, idd, it] = d["l"].astype(float).to_numpy()
     f["rc_obs"] = ~np.isnan(rc)
-    glob = con.execute(f"""SELECT {mi} t, SUM(voos_cancelados)*1.0/SUM(voos_previstos) c, SUM(voos_atraso_30)*1.0/SUM(voos_realizados) l
+    glob = con.execute(f"""SELECT {mi()} t, SUM(voos_cancelados)::DOUBLE/SUM(voos_previstos) c, SUM(voos_atraso_30)::DOUBLE/SUM(voos_realizados) l
                            FROM route_disruptions WHERE empresa_icao='AZU' GROUP BY 1 ORDER BY 1""").df()
     for arr, col in ((rc, "c"), (rl, "l")):
         with warnings.catch_warnings():
@@ -184,14 +208,14 @@ def gera_viagens(f, rng, arq, home, lam):
     tarifa pela CDF empirica do par no MES DA COMPRA (a ANAC publica por mes de venda); voo = compra + antecedencia."""
     W = f["W"]; H, _, D = W.shape
     tp = np.arange(-WARM, NM); tpe = np.maximum(tp, 0)           # meses de compra; aquecimento usa os dados do mes 0
-    ini_c = (np.datetime64("2024-09", "M") + tp).astype("datetime64[D]")
-    dias_c = ((np.datetime64("2024-09", "M") + (tp + 1)).astype("datetime64[D]") - ini_c).astype(int)
+    ini_c = (MES0 + tp).astype("datetime64[D]")
+    dias_c = ((MES0 + (tp + 1)).astype("datetime64[D]") - ini_c).astype(int)
     sea = W.sum((0, 2)); sea = sea / sea.mean()                  # sazonalidade da rede (usada so se nenhuma favorita vende no mes)
     # favoritas: ate 3 destinos da casa, sorteados pelo total de assentos (com vies de tarifa p/ lazer premium)
     wtot = W.sum(1)
     favs = np.zeros((N, 3), int)
     for a in range(len(ARQ)):
-        w = wtot * np.where(f["tarifa_media_slot"] > 0, (f["tarifa_media_slot"] / 694.4) ** EXPOENTE_TARIFA_FAV[a], 0.0)
+        w = wtot * np.where(f["tarifa_media_slot"] > 0, f["tarifa_media_slot"] ** EXPOENTE_TARIFA_FAV[a], 0.0)
         cdf = np.cumsum(w, 1); cdf = cdf / cdf[:, -1:]
         flat = (np.arange(H)[:, None] + cdf).ravel()
         m = np.where(arq == a)[0]
@@ -237,11 +261,12 @@ def gera_viagens(f, rng, arq, home, lam):
     data_volta = data_ida + estadia
     pid = f["dest_pid"][e_h, slot]
     o_air, d_air = f["home_air"][e_h], f["dest_air"][e_h, slot]
-    mes_voo = lambda d: (d.astype("datetime64[M]") - np.datetime64("2024-09")).astype(int)
+    mes_voo = lambda d: (d.astype("datetime64[M]") - MES0).astype(int)
     t_ida, t_volta = mes_voo(data_ida), mes_voo(data_volta)
-    dentro = (data_ida >= INICIO_MES[0]) & (data_ida <= FIM_JANELA) & (t_ida < f["saida_t"][pid])   # voo fora da janela ou depois da saida da Azul
+    sem_azul = lambda t: f["off"][pid, np.clip(t, 0, NM - 1)]                  # Azul fora do par no mes do voo (saida ate o retorno)
+    dentro = (data_ida >= INICIO_MES[0]) & (data_ida <= FIM_JANELA) & ~sem_azul(t_ida)   # voo fora da janela ou com a Azul fora do par
     fora_janela = int((~dentro).sum())
-    tem_volta = dentro & (rng.random(E) < PROB_IDA_VOLTA) & (data_volta <= FIM_JANELA) & (t_volta < f["saida_t"][pid])
+    tem_volta = dentro & (rng.random(E) < PROB_IDA_VOLTA) & (data_volta <= FIM_JANELA) & ~sem_azul(t_volta)
     pernas = []
     for sentido, m, dt, tt, o_, d_, ant in (
             (0, dentro, data_ida, t_ida, o_air, d_air, antec),
@@ -379,22 +404,22 @@ def main():
     viajou = legs_hist > 0
     esperado6 = legs_hist / T_HIST * 6                       # trechos esperados em 6 meses = taxa mensal do historico x 6
     elegivel = esperado6 >= ELEG_MIN
-    legs12 = np.bincount(voadas_h[voadas_h["t"] >= 6]["c"], minlength=N)
-    l6 = np.bincount(voadas_h[voadas_h["t"] >= 12]["c"], minlength=N)
-    p12 = np.bincount(voadas_h[voadas_h["t"] < 12]["c"], minlength=N)
-    razao = np.where(p12 > 0, (l6 / 6) / np.maximum(p12 / 12, 1e-9), 1.0)      # sem base nos 12 meses anteriores: neutro
+    T6 = T_HIST - 6                                          # inicio dos ultimos 6 meses do historico (2025-09 no padrao)
+    l6 = np.bincount(voadas_h[voadas_h["t"] >= T6]["c"], minlength=N)
+    p12 = np.bincount(voadas_h[voadas_h["t"] < T6]["c"], minlength=N)
+    razao = np.where(p12 > 0, (l6 / 6) / np.maximum(p12 / T6, 1e-9), 1.0)      # sem base nos meses anteriores: neutro
     queda = np.clip(1 - razao, -0.5, 1.0)
-    gh = gatilhos_a(Lh); gh = gh[gh["t"] >= 12]
+    gh = gatilhos_a(Lh); gh = gh[gh["t"] >= T6]
     a_grave = np.zeros(N, bool); a_grave[gh["c"].to_numpy()] = True
     cp = voadas_h.groupby(["c", "pid"]).size().reset_index(name="n").sort_values(["c", "n", "pid"], ascending=[True, False, True])
     fav = np.full(N, -1); cpu = cp.drop_duplicates("c"); fav[cpu["c"].to_numpy()] = cpu["pid"].to_numpy()
     bc_h = ameacas_bc(voadas_h[["c", "pid", "t"]].drop_duplicates(), f)
-    bc_h = bc_h[(bc_h["m"] >= 12) & (bc_h["m"] < T_HIST)]
+    bc_h = bc_h[(bc_h["m"] >= T6) & (bc_h["m"] < T_HIST)]
     bc_h = bc_h[bc_h["pid"].to_numpy() == fav[bc_h["c"].to_numpy()]]
     flag = {d: np.zeros(N, bool) for d in ("saida_total", "reducao", "queda_tarifa")}
     for d in flag:
         flag[d][bc_h[bc_h["detalhe"] == d]["c"].to_numpy()] = True
-    f25 = fid[fid["ano"] == 2025]
+    f25 = fid[fid["ano"] == ANO_COMPLETO]
     perto = ((f25["_niv"].to_numpy() >= 1) & (f25["_folga"].to_numpy() < FOLGA_PERTO))
     # faixas de frequencia = tercis da taxa mensal entre elegiveis; q = evasao "natural" (so acaso) da faixa, para calibrar o delta
     taxa_mes = legs_hist / T_HIST
@@ -482,20 +507,29 @@ def main():
         data_ameaca=INICIO_MES[bc["m"].to_numpy()], par_rota=f["par_nomes"][bc["pid"].to_numpy()],
         origem_icao=None, destino_icao=None, detalhe=bc["detalhe"], viagem_id=None, _t=bc["m"]))
     amea = pd.concat([ta, tb], ignore_index=True)
-    amea["periodo"] = np.where(amea["_t"] < T_HIST, "historico", "rotulo")
-    amea = amea.drop(columns="_t").sort_values(["cliente_id", "data_ameaca", "tipo_ameaca"], kind="stable").reset_index(drop=True)
+    amea["periodo"] = np.where(amea["_t"] < T_HIST, "historico", "rotulo")   # so interno (relatorio); vira duas tabelas
+    chave_amea = ["cliente_id", "data_ameaca", "tipo_ameaca", "detalhe", "par_rota", "viagem_id"]
+    amea = amea.drop(columns="_t").sort_values(chave_amea, kind="stable", na_position="first").reset_index(drop=True)
+    hist_amea = amea["periodo"] == "historico"
 
     fid_out = fid.drop(columns=["_niv", "_folga"])
+    # sem nada do periodo de rotulo nas tabelas de entrada: elegibilidade so usa o historico; alvos e ameacas do rotulo ficam a parte
+    eleg = rot[["cliente_id", "data_corte", "viajou_no_historico", "elegivel_evasao", "trechos_esperados_6m"]]
+    alvos = rot[["cliente_id", "data_corte", "evasao", "trechos_futuros_6m", "clv_futuro_6m_brl"]]
     saidas = {"clientes": clientes, "viagens": hist[cols], "viagens_futuro": fut[cols], "fidelidade": fid_out,
-              "rotulos": rot, "customer_threats": amea, "archetypes_validacao": arqt}
+              "elegibilidade": eleg, "alvos": alvos,
+              "customer_threats": amea[hist_amea].drop(columns="periodo"), "customer_threats_rotulo": amea[~hist_amea].drop(columns="periodo"),
+              "archetypes_validacao": arqt}
     assert clientes["cliente_id"].is_unique and L["viagem_id"].is_unique and rot["cliente_id"].is_unique
     assert not any("arquetipo" in c for n_, d_ in saidas.items() if n_ != "archetypes_validacao" for c in d_.columns)
     assert hist["data"].max() <= CORTE and fut["data"].min() > CORTE and (L["tarifa"] > 0).all()
-    assert set(amea["tipo_ameaca"]) <= {"A", "B", "C"} and fid_out.groupby("cliente_id").size().eq(3).all()
+    assert saidas["customer_threats"]["data_ameaca"].max() <= CORTE and saidas["customer_threats_rotulo"]["data_ameaca"].min() > CORTE
+    assert set(amea["tipo_ameaca"]) <= {"A", "B", "C"} and fid_out.groupby("cliente_id").size().eq(len(ANOS)).all()
     for nome, df in saidas.items():
         out = SILVER / f"synthetic_{nome}" / "data.parquet"
         out.parent.mkdir(parents=True, exist_ok=True)
         tmp = out.with_suffix(".tmp")
+        df = df.reset_index(drop=True)   # ordem ja fixa (clientes por id gerado, viagens por cliente/data, ameacas pela chave): mesma seed, mesmos bytes
         df = df.assign(**{c: pd.to_datetime(df[c]).dt.date for c in ("data_voo", "data_ameaca", "data_corte", "referencia_ate") if c in df})   # DATE no Parquet
         df.to_parquet(tmp, compression="zstd", index=False)
         os.replace(tmp, out)
@@ -513,20 +547,21 @@ def main():
             e1, e0 = g & m, g & ~m
             linhas.append((b_, int(e1.sum()), float(np.mean(ev[e1])) if e1.any() else np.nan, float(np.mean(ev[e0])),
                            100 * (float(np.mean(ev[e1])) - float(np.mean(ev[e0]))) if e1.any() else np.nan))
-        diag[nome] = (linhas, DELTA_PP[list(DELTA_PP)[k_]])
+        bruto = 100 * (float(np.nanmean(ev[elegivel & m])) - float(np.nanmean(ev[elegivel & ~m]))) if (elegivel & m).any() else np.nan
+        diag[nome] = (linhas, DELTA_PP[list(DELTA_PP)[k_]], bruto)
     diag["_cortes"] = (cortes, q_faixa)
     diag["_kappa"] = kappa
-    relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fora_janela, parou, viajou, diag, time.perf_counter() - t0)
+    relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fora_janela, parou, viajou, diag)
+    print(f"tempo total {time.perf_counter() - t0:.1f}s")
 
 
 def pct_err(s, p):
     return 100 * (s - p) / p
 
 
-def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fora_janela, parou, viajou, diag, seg):
+def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fora_janela, parou, viajou, diag):
     """Validacao sintetico x publico + cobertura das ameacas + numeros do relatorio; grava docs/VALIDACAO_SINTETICO.md."""
     con = duckdb.connect()
-    mi = "(CAST(substr(ano_mes,1,4) AS INT)-2024)*12 + CAST(substr(ano_mes,6,2) AS INT) - 9"
     for t in ("anac_tarifas",):
         p = (SILVER / t / "*" / "data.parquet").as_posix()
         con.execute(f"CREATE VIEW {t} AS SELECT * FROM read_parquet('{p}', hive_partitioning=true)")
@@ -537,11 +572,11 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
                           SUM(assentos)::DOUBLE s, SUM(assentos*tarifa)::DOUBLE fs FROM anac_tarifas WHERE empresa_icao='AZU' GROUP BY 1)
         SELECT par, s, fs/s tarifa, s/SUM(s) OVER () part FROM b ORDER BY s DESC LIMIT 10""").df()
     dis = con.execute("""SELECT CASE WHEN origem_icao<destino_icao THEN origem_icao||'-'||destino_icao ELSE destino_icao||'-'||origem_icao END par,
-                                SUM(voos_atraso_30)*1.0/SUM(voos_realizados) l FROM route_disruptions WHERE empresa_icao='AZU' GROUP BY 1""").df().set_index("par")["l"]
-    mkt = con.execute("""SELECT par_rota par, SUM(CASE WHEN empresa_icao='AZU' THEN assentos_vendidos END)*1.0/SUM(assentos_vendidos) s
+                                SUM(voos_atraso_30)::DOUBLE/SUM(voos_realizados) l FROM route_disruptions WHERE empresa_icao='AZU' GROUP BY 1""").df().set_index("par")["l"]
+    mkt = con.execute("""SELECT par_rota par, SUM(CASE WHEN empresa_icao='AZU' THEN assentos_vendidos END)::DOUBLE/SUM(assentos_vendidos) s
                          FROM route_competition GROUP BY 1""").df().set_index("par")["s"]
-    pub_total_voos_l = con.execute("SELECT SUM(voos_atraso_30)*1.0/SUM(voos_realizados), SUM(voos_cancelados)*1.0/SUM(voos_previstos) FROM route_disruptions WHERE empresa_icao='AZU'").fetchone()
-    pub_tarifa_g = con.execute("SELECT SUM(assentos*tarifa)/SUM(assentos) FROM anac_tarifas WHERE empresa_icao='AZU'").fetchone()[0]
+    pub_total_voos_l = con.execute("SELECT SUM(voos_atraso_30)::DOUBLE/SUM(voos_realizados), SUM(voos_cancelados)::DOUBLE/SUM(voos_previstos) FROM route_disruptions WHERE empresa_icao='AZU'").fetchone()
+    pub_tarifa_g = con.execute("SELECT (SUM(assentos*tarifa)/SUM(assentos))::DOUBLE FROM anac_tarifas WHERE empresa_icao='AZU'").fetchone()[0]
     voadas = L[~L["cancelado"]]
     lin = []
     for _, r in top.iterrows():
@@ -566,9 +601,7 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
     esp_cg = float(f["rc"][lo, ld, lt][obs_g].mean()); sint_cg = float(L["cancelado"].to_numpy()[obs_g].mean())
     hs = clientes["aeroporto_casa"].value_counts(normalize=True)
     nivel_ano = fid.pivot_table(index="nivel_vigente", columns="ano", values="cliente_id", aggfunc="count").reindex(NIVEIS)
-    f26 = fid[fid["ano"] == 2026].set_index("cliente_id")
-    f25 = fid[fid["ano"] == 2025].set_index("cliente_id")
-    nv = f26["nivel_vigente"]
+    nv = fid[fid["ano"] == ANOS[-1][0]].set_index("cliente_id")["nivel_vigente"]
     base = rot["evasao"].notna()
     evas = rot.loc[base, "evasao"].astype(float).mean()
     # cobertura de ameacas por nivel
@@ -583,7 +616,8 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
                 row[f"{tp}_{per}"] = int(sub[sub["tipo_ameaca"] == tp]["cliente_id"].nunique())
         cob[nivel] = row
     tot_cli = {tp: int(amea[amea["tipo_ameaca"] == tp]["cliente_id"].nunique()) for tp in "ABC"}
-    det = amea.groupby(["tipo_ameaca", "detalhe", "periodo"]).agg(eventos=("cliente_id", "size"), clientes=("cliente_id", "nunique")).reset_index()
+    det = amea.groupby(["tipo_ameaca", "detalhe", "periodo"]).agg(eventos=("cliente_id", "size"), clientes=("cliente_id", "nunique"),
+                                                                    ini=("ano_mes", "min"), fim=("ano_mes", "max")).reset_index()
     # proxy do arquetipo em colunas de entrada: pureza do arquetipo dado o valor da coluna (modelo ve so isso)
     ac = clientes.merge(arqt, on="cliente_id")
     pureza = {}
@@ -602,8 +636,8 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
     md = ["# Validação do sintético contra fontes públicas",
           "",
           f"Gerado por `pipelines/synthetic/generate.py` (seed {SEED}). Erro % = 100 × (sintético − público) / público.",
-          "Comparação sobre os 10 maiores pares (`par_rota`, dois sentidos somados) por assentos vendidos pela Azul (silver.anac_tarifas, AZU), janela 2024-09 a 2026-08.",
-          "O sintético usa 50.000 clientes e todas as viagens geradas (histórico + rótulo). Ver premissas P-06 a P-14 e a circularidade (P-06).",
+          f"Comparação sobre os 10 maiores pares (`par_rota`, dois sentidos somados) por assentos vendidos pela Azul (silver.anac_tarifas, AZU), janela {MESES[0]} a {MESES[-1]}.",
+          f"O sintético usa {N:,} clientes e todas as viagens geradas (histórico + rótulo). Ver premissas P-06 a P-15 e a circularidade (P-06).".replace(",", "."),
           "",
           "| Par | Tarifa pública (R$) | Tarifa sint. (R$) | Erro % | Share do par no total Azul (pub.) | Share sint. | Erro % | Azul no par (assentos Azul / mercado, pub.) | Atraso>30 pub. | Atraso>30 sint. | Erro % | Trechos sint. | Atraso esperado no mix sint. | Erro % vs esperado (ruído amostral) |",
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
@@ -639,7 +673,8 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
            "",
            "## Aeroporto de casa x assentos da Azul (tarifas)",
            "",
-           "Casa e pares saem da mesma fonte: assentos vendidos pela Azul em `silver.anac_tarifas` (AZU, 2024-09 a 2026-08). Os voos do VRA vão só como referência.",
+           f"Casa e pares saem da mesma fonte: assentos vendidos pela Azul em `silver.anac_tarifas` (AZU, {MESES[0]} a {MESES[-1]}): "
+           f"{len(f['homes'])} aeroportos de origem candidatos, {clientes['aeroporto_casa'].nunique()} sorteados como casa de ao menos um cliente. Os voos do VRA vão só como referência.",
            "",
            "| Aeroporto | Share de assentos Azul com origem no aeroporto (tarifas) | Share de clientes (casa) | Share de voos Azul (VRA, só referência) |", "|---|---|---|---|"]
     vo = f["voos_origem"]; vo = vo / vo[[a for a in vo.index if a in set(f["homes"])]].sum()
@@ -647,13 +682,22 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
     ass = ass[[a_ for a_ in ass.index if a_ in set(f["homes"])]]; ass = ass / ass.sum()
     for a_ in ass.sort_values(ascending=False).head(8).index:
         md.append(f"| {a_} | {100*ass[a_]:.2f}% | {100*hs.get(a_, 0):.2f}% | {100*vo.get(a_, 0):.2f}% |")
-    md += ["", "## Cobertura das ameaças (clientes distintos)", "",
-           "Eventos por tipo e período (A = ameaça A grave: 2 eventos de atraso de partida > 60 min ou cancelamento em até 90 dias, data do 2º evento; B e C = pares reais de `gold.route_exits` e `gold.route_competition` em que o cliente voou nos 12 meses até o mês da ameaça):",
-           "", "| Tipo | Detalhe | Período | Eventos | Clientes |", "|---|---|---|---|---|"]
+    sg = f["saidas_gold"]
+    sg_v = sg[sg["volta"] < NM]
+    md += ["", "## Saída total e retorno da Azul ao par", "",
+           f"`gold.route_exits` marca {len(sg)} pares com saída total; {int(sg['pid'].notna().sum())} têm venda da Azul (AZU) na ANAC Tarifas e entram no sintético "
+           f"(os demais são pares só da ACN ou sem venda AZU; P-15). A Azul fica fora do par de `mes_saida` até o mês anterior ao retorno (primeiro mês seguinte com voo do grupo Azul): "
+           f"{len(sg_v)} pares voltam na janela ({int(sg_v['pid'].notna().sum())} deles no sintético): "
+           + ", ".join(f"{r.par_rota} ({MESES[int(r.ms)]} → {MESES[int(r.volta)]})" for r in sg_v.sort_values("par_rota").itertuples()) + ".",
+           "", "## Cobertura das ameaças (clientes distintos)", "",
+           f"Duas tabelas: `synthetic_customer_threats` (histórico, mês <= {MESES[T_HIST - 1]}; entrada do modelo e do Radar) e `synthetic_customer_threats_rotulo` "
+           f"(período de rótulo, {MESES[T_HIST]} a {MESES[-1]}; nunca entrada de modelo). A = ameaça A grave: 2 eventos de atraso de partida > 60 min ou cancelamento em até 90 dias, data do 2º evento; "
+           "B e C = pares reais de `gold.route_exits` e `gold.route_competition` em que o cliente voou nos 12 meses até o mês da ameaça. C é só `queda_tarifa` (a entrada de concorrente saiu da gold, P-05).",
+           "", "| Tipo | Detalhe | Tabela | Eventos | Clientes | Primeiro mês | Último mês |", "|---|---|---|---|---|---|---|"]
     for r in det.itertuples():
-        md.append(f"| {r.tipo_ameaca} | {r.detalhe} | {r.periodo} | {r.eventos} | {r.clientes} |")
-    md += ["", f"Clientes distintos atingidos (qualquer período): A {tot_cli['A']}, B {tot_cli['B']}, C {tot_cli['C']} de {N}.", "",
-           "Por nível vigente em 28/02/2026 (histórico = ameaças até 2026-02; todos = inclui mar-ago/2026):", "",
+        md.append(f"| {r.tipo_ameaca} | {r.detalhe} | {'customer_threats' if r.periodo == 'historico' else 'customer_threats_rotulo'} | {r.eventos} | {r.clientes} | {r.ini} | {r.fim} |")
+    md += ["", f"Clientes distintos atingidos (as duas tabelas): A {tot_cli['A']}, B {tot_cli['B']}, C {tot_cli['C']} de {N}.", "",
+           f"Por nível vigente em {CORTE} (hist. = `synthetic_customer_threats`; todos = inclui `synthetic_customer_threats_rotulo`):", "",
            "| Nível | Clientes | A hist. | B hist. | C hist. | A todos | B todos | C todos |", "|---|---|---|---|---|---|---|---|"]
     for k, r in cob.items():
         md.append(f"| {k} | {r['clientes']} | {r['A_historico']} | {r['B_historico']} | {r['C_historico']} | {r['A_todos']} | {r['B_todos']} | {r['C_todos']} |")
@@ -662,26 +706,34 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
            f"Elegíveis: {n_eleg} (trechos esperados em 6 meses >= {ELEG_MIN:g}); não elegíveis (rótulo nulo): {N - n_eleg}. "
            f"Faixas = tercis da taxa mensal do histórico entre elegíveis: baixa < {cortes_[0]:.3f}, média até {cortes_[1]:.3f}, alta acima (trechos/mês). "
            f"Evasão 'natural' (só acaso) por faixa, usada na calibração: {', '.join(f'{100*x:.1f}%' for x in q_)}. "
-           "Expostos = ameaça no histórico (últimos 6 meses: 2025-09 a 2026-02); não expostos = sem essa ameaça (podem ter outras). Diferença em pontos percentuais (pp); alvo entre parênteses.", "",
+           f"Expostos = ameaça no histórico (últimos 6 meses: {MESES[T_HIST - 6]} a {MESES[T_HIST - 1]}); não expostos = sem essa ameaça (podem ter outras). Diferença em pontos percentuais (pp); alvo entre parênteses.", "",
            "| Ameaça (alvo) | Faixa | Expostos | Evasão expostos | Evasão não expostos | Diferença (pp) |", "|---|---|---|---|---|---|"]
-    for k_, (linhas, alvo) in diag.items():
+    efetivo = []
+    for k_, (linhas, alvo, bruto) in diag.items():
         for b_, n_, r1, r0, df_ in linhas:
             md.append(f"| {k_} ({100*alvo:+.0f} pp) | {['baixa', 'média', 'alta'][b_]} | {n_} | {100*r1:.1f}% | {100*r0:.1f}% | {df_:+.1f} |")
+        ok_ = [(n_, df_) for _, n_, _, _, df_ in linhas if n_ and not np.isnan(df_)]
+        efetivo.append((k_, alvo, sum(n_ for n_, _ in ok_), sum(n_ * d_ for n_, d_ in ok_) / max(sum(n_ for n_, _ in ok_), 1), bruto))
+    md += ["", "### Delta efetivo (medido) x nominal", "",
+           "Delta efetivo = média das diferenças por faixa ponderada pelos expostos de cada faixa (o que a calibração mira). "
+           "Bruto = diferença entre expostos e não expostos sem estratificar por faixa (mistura o efeito da frequência).", "",
+           "| Ameaça | Nominal (pp) | Expostos | Delta efetivo (pp) | Bruto (pp) |", "|---|---|---|---|---|"]
+    md += [f"| {k_} | {100*a_:+.0f} | {n_} | {d_:+.1f} | {b_:+.1f} |" for k_, a_, n_, d_, b_ in efetivo]
     md += ["", "Ameaças com poucos expostos por faixa (em especial saída total, dezenas de clientes) têm estimativa ruidosa: com n = 30 e taxa perto de 30%, o erro-padrão da diferença é de cerca de 8 pp.",
            "", "Multiplicadores de calibração do efeito (kappa, 1 = delta nominal; ameaça × faixa baixa/média/alta): " + "; ".join(f"{nm_} {np.round(kk_, 2).tolist()}" for nm_, kk_ in zip(diag, kappa_)) + ". Kappa acima de 1 compensa confundidores que reduzem a diferença; abaixo de 1 ou 0, confundidores que já a aumentam (saída de rota reduz trechos e aciona também a tendência de queda).",
-           "", "## Pirâmide de níveis (vigente em 2026-02-28)", "", "| Nível | Clientes |", "|---|---|"]
+           "", f"## Pirâmide de níveis (vigente em {CORTE})", "", "| Nível | Clientes |", "|---|---|"]
     md += [f"| {k_} | {int(c_)} |" for k_, c_ in nv.value_counts().reindex(NIVEIS).items()]
     md += ["", "## Proxy do arquétipo nas tabelas de entrada", "",
            "Distância de variação total média entre P(arquétipo | valor da coluna) e P(arquétipo) (0 = a coluna não informa nada sobre o arquétipo; 1 = proxy perfeito): "
            f"aeroporto_casa {pureza['aeroporto_casa']:.4f}, consentimento_marketing {pureza['consentimento_marketing']:.4f}. "
            "As colunas de comportamento (frequência, antecedência, tarifa) são correlacionadas ao arquétipo por construção, mas as classes se sobrepõem (Gamma, ruído) e nenhuma coluna o identifica sozinha.",
-           "", f"Tempo total de execução: {seg:.0f} s."]
+           ""]
     (ROOT / "docs").mkdir(exist_ok=True)
     (ROOT / "docs" / "VALIDACAO_SINTETICO.md").write_text("\n".join(md) + "\n", encoding="utf-8")
 
     print("\n===== RESUMO =====")
     print("clientes por nivel vigente (ano):\n", nivel_ano.to_string())
-    print("nivel vigente ao fim do historico (2026-02-28):\n", nv.value_counts().reindex(NIVEIS).to_string())
+    print(f"nivel vigente ao fim do historico ({CORTE}):\n", nv.value_counts().reindex(NIVEIS).to_string())
     print(f"evasao: elegiveis={int(base.sum())}, evadiram={int(rot.loc[base,'evasao'].astype(float).sum())}, taxa={100*evas:.2f}%; nulos={N-int(base.sum())} (sem viagem no historico={sem_viagem_hist})")
     print("evasao por nivel:\n", evas_nivel.to_string())
     print("evasao/viajou por arquetipo (validacao):\n", arq_evas.to_string())
@@ -696,7 +748,7 @@ def relatorio(f, L, fid, rot, amea, clientes, arqt, ids, perdidas, n_eventos, fo
     print("cancel mesma ponderacao", sint_cg, esp_cg, pct_err(sint_cg, esp_cg), "frac obs", obs_g.mean())
     print("global tarifa", L["tarifa"].mean(), pub_tarifa_g, "atraso", glob_l, pub_total_voos_l, "cancel", glob_c)
     print("pureza proxy", pureza, base_arq)
-    print(f"tempo total {seg:.1f}s")
+    print("delta efetivo:", [(k_, round(d_, 2), round(b_, 2)) for k_, _, _, d_, b_ in efetivo])
 
 
 if __name__ == "__main__":

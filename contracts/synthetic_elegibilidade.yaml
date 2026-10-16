@@ -1,0 +1,22 @@
+table: silver.synthetic_elegibilidade
+layer: silver
+version: 1
+description: >
+  População do modelo de evasão, calculada SÓ com o histórico (voos até 2026-02-28, corte). Pode ser usada como
+  entrada e para filtrar elegíveis. Não tem nenhuma informação do período de rótulo (mar a ago/2026), que fica em
+  synthetic_alvos. Substitui as colunas de histórico da antiga synthetic_rotulos (premissa P-13).
+produced_by: pipelines/synthetic/generate.py
+sources: [silver.synthetic_viagens]
+storage:
+  format: parquet (zstd)
+  path: data/silver/synthetic_elegibilidade/data.parquet
+grain: [cliente_id]
+columns:
+  - {name: cliente_id, type: VARCHAR(36), nullable: false, description: "FK synthetic_clientes.cliente_id"}
+  - {name: data_corte, type: DATE, nullable: false, description: "Fim do histórico (2026-02-28 na janela padrão; derivado de ANAC_END_MONTH, P-06)"}
+  - {name: viajou_no_historico, type: BOOLEAN, nullable: false, description: "Ao menos 1 trecho voado (não cancelado) de 2024-09-01 a 2026-02-28"}
+  - {name: elegivel_evasao, type: BOOLEAN, nullable: false, description: "trechos_esperados_6m >= 3. Só elegíveis têm rótulo de evasão em synthetic_alvos"}
+  - {name: trechos_esperados_6m, type: DOUBLE, nullable: false, description: "Trechos voados (não cancelados) no histórico / 18 x 6 = trechos esperados em 6 meses"}
+quality:
+  - grão único
+  - elegivel_evasao implica viajou_no_historico

@@ -1,0 +1,27 @@
+table: silver.synthetic_customer_threats_rotulo
+layer: silver
+version: 1
+description: >
+  Ameaças que atingiram clientes NO PERÍODO DE RÓTULO (mês da ameaça de 2026-03 a 2026-08, depois do corte em
+  2026-02-28). NUNCA usar como entrada de modelo: só avaliação (ex.: o Radar teria disparado?) e análise de rótulo.
+  Mesmas regras e colunas de synthetic_customer_threats (premissa P-12); B e C seguem as flags das gold até 2026-08.
+produced_by: pipelines/synthetic/generate.py
+sources: [silver.synthetic_viagens, silver.synthetic_viagens_futuro, gold.route_disruptions, gold.route_exits, gold.route_competition]
+storage:
+  format: parquet (zstd)
+  path: data/silver/synthetic_customer_threats_rotulo/data.parquet
+grain: [cliente_id, tipo_ameaca, ano_mes, par_rota, detalhe, data_ameaca]   # A: um por gatilho (viagem_id do 2º evento)
+columns:
+  - {name: cliente_id, type: VARCHAR(36), nullable: false, description: "FK synthetic_clientes.cliente_id"}
+  - {name: tipo_ameaca, type: VARCHAR(1), nullable: false, description: "'A' atraso/cancelamento grave (2 eventos em 90 dias), 'B' rota órfã, 'C' escudo de rota"}
+  - {name: ano_mes, type: VARCHAR(7), nullable: false, description: "Mês da ameaça 'AAAA-MM' (A: mês do voo do 2º evento; B: mes_saida ou mês marcado; C: mês marcado)"}
+  - {name: data_ameaca, type: DATE, nullable: false, description: "A: data do voo do 2º evento; B e C: primeiro dia do mês da ameaça. Sempre > data de corte"}
+  - {name: par_rota, type: VARCHAR(9), nullable: false, description: "Par em ordem alfabética (join com as gold)"}
+  - {name: origem_icao, type: VARCHAR(4), nullable: true, description: "Só em A: origem do trecho do 2º evento; nulo em B e C"}
+  - {name: destino_icao, type: VARCHAR(4), nullable: true, description: "Só em A: destino do trecho; nulo em B e C"}
+  - {name: detalhe, type: VARCHAR, nullable: false, description: "grave_2_eventos_90d (A); saida_total, reducao (B); queda_tarifa (C)"}
+  - {name: viagem_id, type: VARCHAR(36), nullable: true, description: "Só em A: FK do trecho do 2º evento (synthetic_viagens_futuro; o 1º evento pode ser do histórico)"}
+quality:
+  - tipo_ameaca em (A, B, C)
+  - A tem viagem_id; B e C não
+  - data_ameaca > data de corte (asserção no gerador)
