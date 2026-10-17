@@ -1,0 +1,35 @@
+table: gold.customer_scores
+layer: gold
+version: 1
+description: >
+  Score de Alto Valor por cliente no corte 2026-02-28 (fim do histórico sintético), consumido pelo agente e pelo app.
+  Junta CLV previsto de 6 meses, probabilidade de evasão (só elegíveis), potencial de crescimento, persona e os 3
+  principais motivos de risco em português (SHAP). p_evasao, clv_previsto e motivos são out-of-fold (5 dobras por
+  cliente no mesmo corte): nenhum cliente é pontuado nem explicado por modelo que viu o próprio rótulo; os motivos
+  vêm do SHAP do mesmo modelo de dobra que gerou o p_evasao do cliente. Métricas, pesos e limitações em
+  ml/model_card.md; premissas em docs/PREMISSAS.md (P-16). Nenhuma coluna de arquétipo nem dado pessoal.
+produced_by: ml/score.py
+sources: [silver.synthetic_clientes, silver.synthetic_viagens, silver.synthetic_customer_threats, gold.route_exits, silver.anac_vra]
+storage:
+  format: parquet (zstd)
+  path: data/gold/customer_scores/data.parquet
+grain: [cliente_id]
+columns:
+  - {name: cliente_id, type: VARCHAR(36), nullable: false, description: "FK synthetic_clientes.cliente_id"}
+  - {name: data_corte, type: DATE, nullable: false, description: "Corte das features (2026-02-28); as previsões olham os 6 meses seguintes"}
+  - {name: regiao_origem, type: VARCHAR, nullable: false, description: "Região (IBGE) da UF do aeroporto de casa, pela descrição do aeroporto no VRA da ANAC (P-16). Não entra nos modelos; só fairness"}
+  - {name: elegivel_evasao, type: BOOLEAN, nullable: false, description: ">= 3 trechos esperados em 6 meses no histórico (P-13); só elegíveis têm p_evasao e motivos"}
+  - {name: p_evasao, type: DOUBLE, nullable: true, description: "Probabilidade de evasão parcial nos 6 meses seguintes (LightGBM, out-of-fold); nulo se não elegível"}
+  - {name: clv_previsto_6m_brl, type: DOUBLE, nullable: false, unit: BRL, description: "Receita aérea bruta prevista para os 6 meses seguintes (LightGBM Tweedie, out-of-fold, >= 0)"}
+  - {name: potencial_brl, type: DOUBLE, nullable: false, unit: BRL, description: "0,25 x CLV previsto x clip(razão de tendência - 1; 0; 1): prêmio de crescimento, até 25% do CLV"}
+  - {name: score_valor_brl, type: DOUBLE, nullable: false, unit: BRL, description: "CLV previsto x (1 - p_evasao) + potencial; não elegíveis usam a prevalência de evasão dos elegíveis"}
+  - {name: persona, type: VARCHAR, nullable: false, description: "Persona do k-means (ml/segment.py) ou 'Sem voo no histórico'"}
+  - {name: decil_score, type: BIGINT, nullable: false, description: "Decil do score (1 = 10% maiores); decil 1 = público de oferta usado no fairness"}
+  - {name: motivo_1, type: VARCHAR, nullable: true, description: "Principal fator que aumenta o risco de evasão (SHAP > 0 no modelo da dobra que gerou o p_evasao, sem o rótulo do cliente), em português com o valor do cliente; nulo se não elegível"}
+  - {name: motivo_2, type: VARCHAR, nullable: true, description: "2º fator de risco (mesmo SHAP out-of-fold); nulo se não elegível ou sem 2º fator positivo"}
+  - {name: motivo_3, type: VARCHAR, nullable: true, description: "3º fator de risco (mesmo SHAP out-of-fold); nulo se não elegível ou sem 3º fator positivo"}
+quality:
+  - grão único, 50.000 clientes
+  - p_evasao nulo se e somente se elegivel_evasao = false (asserção em ml/score.py)
+  - motivos sempre nulos em não elegíveis; em elegíveis, nulos só quando faltam fatores com SHAP > 0
+  - score_valor_brl >= 0

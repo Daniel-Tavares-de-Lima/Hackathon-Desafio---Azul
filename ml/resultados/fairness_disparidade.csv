@@ -1,0 +1,7 @@
+metrica,min,max,regiao_min,regiao_max,razao_max_min
+score_medio_brl,1606.2195,1772.8049,Sul,Norte,1.1037
+taxa_oferta_top_decil,0.0946,0.1091,Centro-Oeste,Nordeste,1.1537
+brier_evasao,0.1739,0.1962,Sul,Norte,1.1282
+auc_evasao,0.6876,0.7192,Norte,Sul,1.0459
+mae_clv_brl,1479.1289,1970.7229,Sul,Norte,1.3324
+clv_real_medio_brl,1802.3051,2412.3061,Sul,Norte,1.3385

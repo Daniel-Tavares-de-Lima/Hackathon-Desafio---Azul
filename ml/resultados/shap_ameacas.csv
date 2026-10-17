@@ -1,0 +1,7 @@
+feature,expostos,shap_medio_expostos,shap_medio_nao_expostos,rank_global
+a_6m,914,0.0868,-0.0078,16
+dias_desde_a,1400,0.4991,-0.0630,5
+b_saida_fav_6m,56,0.3702,-0.0015,19
+b_reducao_fav_6m,864,0.0031,-0.0001,22
+c_queda_fav_6m,486,0.1485,-0.0056,17
+dias_desde_bc,1487,0.2892,-0.0362,9

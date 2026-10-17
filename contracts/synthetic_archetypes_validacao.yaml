@@ -16,4 +16,4 @@ columns:
   - {name: arquetipo, type: VARCHAR, nullable: false, description: "Arquétipo oculto (cinco valores; premissa P-07)"}
 quality:
   - grão único
-  - não pode ser lida por ml/, agent/ ou app/
+  - não pode ser lida por ml/, agent/ ou app/; única exceção: ml/circularidade.py, só para medir recuperação do arquétipo (nunca feature nem treino)

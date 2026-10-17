@@ -1,0 +1,7 @@
+persona,clientes,score_medio_brl,clv_previsto_medio_brl,pct_top_decil,p_evasao_media,elegiveis
+Caçador de tarifa,10352,564.6568,789.0544,0.0003,0.4249,1126
+Em ascensão,7818,2299.9743,2284.3009,0.1403,0.2239,3326
+Frequente de negócios,3715,8956.1913,9485.7748,0.8258,0.1618,3715
+Multirrota,6605,1855.3148,2162.9827,0.1067,0.3099,2962
+Ocasional,11621,957.3592,1370.3825,0.0109,0.4068,2696
+Sem voo no histórico,9889,345.3109,478.0584,0.0000,,0

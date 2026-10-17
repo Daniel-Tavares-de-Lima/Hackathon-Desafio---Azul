@@ -1,0 +1,5 @@
+avaliacao,modelo,n_treino,n_teste,auc_pr,prevalencia,auc_roc,precisao_top10,recall_top10,brier
+temporal 2025-08 -> 2026-02,lightgbm,14296,13825,0.4153,0.2783,0.6641,0.4960,0.1783,0.1948
+produção: OOF 5 dobras em 2026-02,lightgbm,11060,13825,0.4662,0.2783,0.7036,0.5633,0.2024,0.1802
+temporal 2025-08 -> 2026-02,baseline_logistica_rfm,14296,13825,0.4251,0.2783,0.6574,0.5228,0.1879,0.1963
+produção: OOF 5 dobras em 2026-02,baseline_logistica_rfm,11060,13825,0.4438,0.2783,0.6746,0.5271,0.1894,0.1852

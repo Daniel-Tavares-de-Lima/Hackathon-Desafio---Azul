@@ -1,0 +1,6 @@
+avaliacao,modelo,mae_brl,r2,gain_top10
+temporal 2025-08 -> 2026-02,lightgbm,1677.0618,0.4763,0.4491
+temporal 2025-08 -> 2026-02,baseline_rfm_gasto12m_div2,1593.2888,0.4715,0.4406
+produção: OOF 5 dobras em 2026-02,lightgbm,1579.9382,0.4962,0.4534
+referência,aleatório,,,0.1000
+referência,oráculo (ordem perfeita),0.0000,1.0000,0.5767

@@ -12,9 +12,9 @@ ANAC_END_MONTH ?= 2026-08
 ANAC_MONTHS ?= 24
 export ANAC_END_MONTH ANAC_MONTHS
 
-.PHONY: all venv ingest ingest-tarifas ingest-vra gold synthetic test
+.PHONY: all venv ingest ingest-tarifas ingest-vra gold synthetic ml test
 
-all: ingest gold synthetic test
+all: ingest gold synthetic ml test
 
 $(PY):
 	python -m venv .venv
@@ -36,5 +36,17 @@ gold: ingest
 synthetic: gold
 	$(PY) -I pipelines/synthetic/generate.py
 
-test: synthetic
+# Modelos (churn, CLV, personas, SHAP), score -> gold.customer_scores, fairness e circularidade. Ordem importa:
+# score.py lê as previsões out-of-fold de churn/clv, as personas e os motivos; fairness e circularidade leem o score.
+ml: synthetic
+	$(PY) -I ml/features.py
+	$(PY) -I ml/churn.py
+	$(PY) -I ml/clv.py
+	$(PY) -I ml/segment.py
+	$(PY) -I ml/explain.py
+	$(PY) -I ml/score.py
+	$(PY) -I ml/fairness.py
+	$(PY) -I ml/circularidade.py
+
+test: synthetic ml
 	$(PY) -I tests/test_contratos.py
