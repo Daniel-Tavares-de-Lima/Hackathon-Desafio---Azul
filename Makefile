@@ -12,7 +12,7 @@ ANAC_END_MONTH ?= 2026-08
 ANAC_MONTHS ?= 24
 export ANAC_END_MONTH ANAC_MONTHS
 
-.PHONY: all venv ingest ingest-tarifas ingest-vra gold synthetic ml test
+.PHONY: all venv ingest ingest-tarifas ingest-vra gold synthetic ml test agent-test api-test app api
 
 all: ingest gold synthetic ml test
 
@@ -48,5 +48,22 @@ ml: synthetic
 	$(PY) -I ml/fairness.py
 	$(PY) -I ml/circularidade.py
 
-test: synthetic ml
+# Agente NBA: só lê gold/silver prontas (não refaz ml). Em `test`, roda depois de ml (pré-requisitos em ordem).
+agent-test: $(PY)
+	$(PY) -I agent/guardrails.py
+	$(PY) -I agent/tests/test_golden.py
+
+# API: TestClient sobre gold/silver prontas (não refaz ml).
+api-test: $(PY)
+	$(PY) -I api/test_api.py
+
+# Painel: gera o lote do agente se faltar (~1 min, usado em Personas e Simulador) e sobe o Streamlit.
+app: $(PY)
+	$(PY) -I app/lote.py
+	$(PY) -I -m streamlit run app/main.py
+
+api: $(PY)
+	$(PY) -I -m uvicorn api.main:app --app-dir . --port 8000
+
+test: synthetic ml agent-test api-test
 	$(PY) -I tests/test_contratos.py

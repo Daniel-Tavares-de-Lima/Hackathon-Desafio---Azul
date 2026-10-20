@@ -1,0 +1,12 @@
+[theme]
+base = "light"
+primaryColor = "#4f5d66"
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
+
+[server]
+address = "localhost"

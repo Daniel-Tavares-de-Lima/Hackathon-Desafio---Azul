@@ -159,3 +159,66 @@
 - **Região de origem** = UF do aeroporto de casa pela descrição publicada no VRA da ANAC (`origem_descricao`, formato "... - CIDADE - UF - BRASIL", P-01) e UF → região pela divisão regional do IBGE (https://www.ibge.gov.br/geociencias/organizacao-do-territorio/divisao-regional.html). SBFC (Franca-SP) não tem descrição no VRA da janela e foi mapeado à mão para SP. A região **não entra nos modelos** (só no relatório de fairness).
 - **Personas:** k-means em 5 variáveis padronizadas (log da frequência mensal, log da tarifa média, log da antecedência mediana, concentração na rota favorita, razão de tendência), só clientes com viagem; k = 4 ou 5 pela silhueta numa amostra fixa de 10.000; nomes por regras fixas sobre os centróides (`ml/segment.py`). Sem fonte pública: segmentação de produto.
 - **Motivos por cliente:** as 3 features com maior SHAP positivo (aumentam o log-odds de evasão) no modelo de produção, escritas com o valor do cliente. Contagem de evento igual a zero (ex.: "0 cancelamentos") é pulada, porque não se lê como motivo.
+
+## P-17 · Agente NBA: decisão, efeitos, custo, teto e KB (2026-10-20)
+- **Custo zero (decisão do time).** A decisão é determinística (regras + catálogo fechado + guardrails), sem LLM. A
+  mensagem sai de texto-modelo em PT-BR (`LLM_PROVIDER=nenhum`). `LLM_PROVIDER=ollama` (HTTP local, `LLM_MODEL`) só
+  reescreve a mensagem já decidida; o texto do LLM passa pelos mesmos guardrails e precisa manter todos os números do
+  texto-modelo, senão volta o texto-modelo. RAG = TF-IDF do scikit-learn sobre as seções `##` de `agent/kb/*.md`
+  (`LACUNAS.md` fora).
+- **Entradas:** `gold.customer_scores` (sem `regiao_origem`, removida antes de chegar ao agente), `synthetic_clientes`
+  (casa, consentimento), `synthetic_fidelidade` (2025 e 2026 até o corte), `synthetic_customer_threats` (só histórico),
+  `gold.route_exits` e `gold.route_disruptions` até 2026-02. Nunca `_rotulo`, `synthetic_alvos` nem futuro.
+- **Mapeamento ameaça → ação** (prioridade nesta ordem; calibração própria, segue o briefing):
+
+| Gatilho (janela até 2026-02-28) | Ação | Benefícios exigidos na KB |
+|---|---|---|
+| A grave nos últimos 90 dias (janela da regra A, P-12) | `recuperacao_servico` | assistência material e reacomodação (ANAC) |
+| B saída total ou redução nos últimos 180 dias (janela das features, P-16), com alternativa na malha | `oferta_rota_favorita` | pontos do nível |
+| B sem alternativa, ou B sem consentimento de marketing | `contato_humano` | nenhum (não promete benefício; a regra ANAC de reacomodação trata de atraso) |
+| C queda de tarifa nos últimos 180 dias | `bonus_pontos` (Diamante Unique: `upgrade`) | pontos do nível; upgrade com desconto só Unique |
+| Perto de cair de nível (nível de 2025 com folga < 25%, P-11/P-13) e meta de 2026 não cumprida (OU: faltam trechos e pontos; E: falta o gasto e falta trechos ou pontos) | `desafio_manutencao_nivel` | critérios do nível |
+| Nenhum dos acima, não elegível (sem `p_evasao`), benefício sem regra ou guardrail violado | `sem_acao_automatica` | — |
+
+- **Alternativa pela malha (B):** no mês do corte (2026-02) em `gold.route_exits`, voo direto restante (só redução) e
+  conexão via hub SBKP, SBCF ou SBRF (P-08) com voo do grupo Azul nas duas pernas; escolhe o hub com mais voos na perna
+  mais fraca. Sentido a partir do aeroporto de casa.
+- **Dois eixos:** valor = decil do `score_valor_brl` (alto 1–2, médio 3–5, baixo 6–10); risco = `p_evasao` (alto ≥
+  0,35, médio ≥ 0,20, baixo < 0,20). Valor baixo → sem ação com custo. Risco baixo → só recuperação de serviço (A).
+  Depois, ROI precisa ser > 0. Limiares: calibração própria.
+- **ROI** = `p_evasao × CLV_6m × efeito suposto − custo`. **Efeito suposto** (redução relativa de `p_evasao`,
+  calibração própria, sem fonte pública nem experimento): recuperação 0,25; oferta na rota 0,20; desafio 0,20; upgrade
+  0,12; bônus de pontos 0,10; contato humano 0,10. Os efeitos de ameaça do gerador (P-13) não calibram estes valores.
+- **Custo:** pontos = % do CLV de 6 meses (recuperação 3%, oferta 2%, desafio 2%, upgrade 2%, bônus 1,5%) mais contato
+  (humano R$ 20, digital R$ 1). **Valor do ponto para a Azul = R$ 0,02** (calibração própria; sem fonte pública).
+  **Teto por cliente** = mín(5% do CLV de 6 meses; R$ 500) + R$ 20 do contato (proporcional ao valor; calibração
+  própria). Toda ação do catálogo gera custo, então `requer_aprovacao_humana = true` sempre, inclusive na abstenção.
+- **Consentimento (LGPD, P-14):** sem `consentimento_marketing`, só `recuperacao_servico` ou `contato_humano`; C e
+  desafio de nível viram abstenção.
+- **Não elegível** (sem `p_evasao`): abstenção, mesmo com ameaça A, porque não há ROI estimável. Decisão conservadora,
+  revisável pelo time.
+- **KB (coleta de 2026-10-20):** a página oficial do Azul Fidelidade devolveu HTTP 403; níveis, benefícios e acúmulo
+  vêm de fontes secundárias marcadas "a conferir por negócios". ANAC: notícia oficial do Ministério de Portos e
+  Aeroportos (23/09/2026). Lacunas e divergências com P-11 (1 ponto qualificável por R$ na fonte contra 0,5 em P-11)
+  em `agent/kb/LACUNAS.md`. O crédito de pontos de cortesia não tem regra pública: é decisão comercial, sempre com
+  aprovação humana.
+- **Ajustes pós-auditoria (2026-10-20):** o crédito de pontos de qualquer ação sai no campo `decisao_comercial`
+  ("decisão comercial (sem regra pública)"), separado de `regras_citadas`. O desafio de nível segue P-11 (meta de
+  2026 garante o nível em 2027); não dispara se algum caminho da regra já foi cumprido e a mensagem mostra só o que
+  falta. A validade do nível de 2025 até o fim de 2026 (P-11, sem fonte confirmada) fica só na justificativa, não no
+  texto ao cliente.
+- **Mensagem = contexto fixo + oferta (2026-10-20, versão final pós-auditoria).** Cada ação tem 3 ou 4 contextos
+  fixos aprovados em PT-BR (`nba_agent.CONTEXTOS`: empático, direto, caloroso, formal), sem número, valor nem
+  benefício; o 1º é o padrão. A `oferta` (números, pontos, R$, prazos e condições) sai do texto-modelo, vai em
+  `mensagem_oferta` e nunca muda. Mensagem = contexto escolhido + " " + oferta; `contexto_indice` diz qual contexto foi
+  usado.
+- **O LLM só escolhe o tom, não escreve nada.** Com `LLM_PROVIDER=ollama`, o modelo local recebe um resumo do perfil
+  (ação, gatilho, nível, faixas de valor e risco; nenhum atributo sensível) e os contextos numerados, e responde só o
+  índice. A resposta é aceita apenas se, sem espaços, casar com `^[1-N]$`; qualquer outra coisa ou falha de conexão
+  usa o contexto padrão. Nenhum texto do LLM chega à mensagem, então não há lista de bloqueio a manter para o LLM (a
+  abordagem anterior, de reescrever o contexto e filtrar por lista, foi removida porque vazava texto livre sem
+  número). O padrão continua `LLM_PROVIDER=nenhum`.
+- **Risco residual (aceito pela auditoria): edição manual no app.** O aprovador pode editar o contexto; a oferta
+  precisa ficar intacta e o restante passa por uma lista conservadora (`guardrails.checar_contexto`), que não é
+  completa. Quem escreve é o próprio aprovador, a mensagem final fica no log local de aprovações e nada é enviado ao
+  cliente pelo app.

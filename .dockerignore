@@ -1,0 +1,9 @@
+.venv
+__pycache__
+app/.cache
+data/bronze
+.env
+data/silver/synthetic_alvos
+**/*_rotulo
+data/silver/synthetic_viagens_futuro
+data/silver/synthetic_archetypes_validacao
