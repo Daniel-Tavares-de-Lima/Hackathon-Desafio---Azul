@@ -1,0 +1,27 @@
+table: silver.consumidor_aereo
+layer: silver
+version: 1
+description: >
+  Reclamações do Consumidor.gov.br contra companhias aéreas (uma linha por reclamação), republicadas pela ANAC como
+  dados abertos. Só mês, empresa, problema e desfecho: região, UF, cidade e demais campos do consumidor são
+  descartados na leitura. Tema = de/para fixo do campo Problema (PREMISSAS P-18).
+source:
+  publisher: ANAC (GCON/SAS), dados da plataforma Consumidor.gov.br (Senacon); licença Creative Commons Attribution
+  url: https://sistemas.anac.gov.br/dadosabertos/Voos%20e%20opera%C3%A7%C3%B5es%20a%C3%A9reas/Dados%20do%20consumidor.gov/dadosconsumidor{ano}.csv
+  produced_by: pipelines/ingest_consumidor.py
+storage:
+  format: parquet (zstd)
+  path: data/silver/consumidor_aereo/data.parquet
+grain: [linha do arquivo (a fonte não publica id da reclamação)]
+filters:
+  - mês de abertura >= 2024-09 (janela P-01)
+columns:
+  - {name: ano_mes, type: VARCHAR(7), nullable: false, description: "Mês de abertura da reclamação 'AAAA-MM'"}
+  - {name: empresa, type: VARCHAR(6), nullable: false, description: "AZU, GLO, TAM ou OUTRAS (demais companhias, quase todas estrangeiras)"}
+  - {name: grupo_problema, type: VARCHAR, nullable: true, description: Grupo do problema como publicado}
+  - {name: problema, type: VARCHAR, nullable: false, description: Problema como publicado (classificação da plataforma)}
+  - {name: tema, type: VARCHAR, nullable: false, description: "Tema da taxonomia fechada (atraso/cancelamento, bagagem, reembolso, canais de venda/app, atendimento, pontos/resgate, preco, outro)"}
+  - {name: respondida, type: BOOLEAN, nullable: true, description: A empresa respondeu}
+  - {name: avaliacao, type: VARCHAR, nullable: true, description: "Avaliação do consumidor: Resolvida, Não Resolvida, Não Avaliada (nulo se ainda em andamento)"}
+  - {name: nota, type: INTEGER, nullable: true, description: Nota de satisfação do consumidor, 1 a 5 (nulo se não avaliou)}
+  - {name: tempo_resposta_dias, type: INTEGER, nullable: true, description: Dias até a resposta da empresa}

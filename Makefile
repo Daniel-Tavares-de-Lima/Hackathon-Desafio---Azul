@@ -12,9 +12,9 @@ ANAC_END_MONTH ?= 2026-08
 ANAC_MONTHS ?= 24
 export ANAC_END_MONTH ANAC_MONTHS
 
-.PHONY: all venv ingest ingest-tarifas ingest-vra gold synthetic ml test agent-test api-test app api
+.PHONY: all venv ingest ingest-tarifas ingest-vra gold synthetic ml test agent-test api-test app api consumidor nlp
 
-all: ingest gold synthetic ml test
+all: ingest gold synthetic ml consumidor test
 
 $(PY):
 	python -m venv .venv
@@ -65,5 +65,19 @@ app: $(PY)
 api: $(PY)
 	$(PY) -I -m uvicorn api.main:app --app-dir . --port 8000
 
-test: synthetic ml agent-test api-test
+# Atrito público (P-18): Consumidor.gov.br via dados abertos ANAC (cc-by) -> silver.consumidor_aereo -> gold.friction_themes.
+# Usa rede só no 1º download (idempotente, ~78 MB), como o ingest ANAC; o test_contratos precisa da gold.
+consumidor: $(PY)
+	$(PY) -I pipelines/ingest_consumidor.py
+
+# Reviews do app (plugue): teste com fixture fictício; com export oficial em data/bronze/reviews_export/, gera a gold.
+nlp: $(PY)
+	$(PY) -I nlp/tests/test_reviews.py
+ifneq ($(wildcard data/bronze/reviews_export/*),)
+	$(PY) -I pipelines/ingest_reviews_export.py
+	$(PY) -I nlp/reviews_sentiment.py
+endif
+
+test: synthetic ml consumidor nlp agent-test api-test
 	$(PY) -I tests/test_contratos.py
+	$(PY) -I tests/test_consumidor_offline.py

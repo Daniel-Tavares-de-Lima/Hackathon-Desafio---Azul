@@ -222,3 +222,76 @@
   precisa ficar intacta e o restante passa por uma lista conservadora (`guardrails.checar_contexto`), que não é
   completa. Quem escreve é o próprio aprovador, a mensagem final fica no log local de aprovações e nada é enviado ao
   cliente pelo app.
+
+## P-18 · Atrito público: Consumidor.gov.br no lugar de reviews de loja (2026-10-20)
+- **Decisão:** reviews de loja não foram coletados (termos de uso, abaixo). A fonte de atrito público é o
+  Consumidor.gov.br, nos dados abertos que a ANAC republica só para companhias aéreas. O leitor do export oficial de
+  reviews fica pronto para plugar quando a Azul fornecer o arquivo.
+- **Fonte usada:** conjunto "Voos e operações aéreas - Dados do consumidor.Gov" no dados.gov.br
+  (https://dados.gov.br/dados/conjuntos-dados/voos-e-operacoes-aereas-dados-do-consumidor-gov), mantido pela
+  GCON/SAS da ANAC, **licença Creative Commons Attribution (cc-by)**: uso livre com atribuição ("Fonte: ANAC,
+  Consumidor.gov.br/Senacon"). Arquivos anuais `dadosconsumidor{ano}.csv` em
+  https://sistemas.anac.gov.br/dadosabertos/Voos%20e%20opera%C3%A7%C3%B5es%20a%C3%A9reas/Dados%20do%20consumidor.gov/
+  (UTF-8, `;`, 1ª linha "Atualizado em: 2026-10-01"). Baixados 2024 (36,0 MB) e 2025 (41,9 MB), total 77,8 MB; 2026
+  ainda não publicado (404 em 2026-10-20). **Período: 2024-09 a 2025-12** (16 meses, 134.666 reclamações), menor que a
+  janela ANAC (P-01, até 2026-08). O conjunto da Senacon (base completa mensal, também cc-by, até 2026-08) aponta para
+  `dados.mj.gov.br`, domínio que não resolve (NXDOMAIN) em 2026-10-20, e a lista de dados abertos do próprio
+  consumidor.gov.br foi bloqueada pelo firewall do portal; por isso a versão da ANAC.
+- **Privacidade:** o arquivo não tem nome, CPF nem texto do relato, mas tem região, UF, cidade, gestor e datas. Só
+  são lidos mês de abertura, empresa, grupo/problema, respondida, avaliação, nota e tempo de resposta; o resto é
+  descartado na leitura (`pipelines/ingest_consumidor.py`). A gold é agregada.
+- **Empresas:** `Nome Fantasia` "Azul Linhas Aéreas" → AZU, "Gol Linhas Aéreas" → GLO, "Latam Airlines (Tam)" →
+  TAM; as demais (quase todas estrangeiras) → OUTRAS. Volume na janela: Azul 48.743, LATAM 38.564, Gol 24.270,
+  outras 23.089.
+- **De/para problema → tema** (um problema por reclamação, então tema único; texto exato em
+  `pipelines/ingest_consumidor.py`; volume na janela, todas as empresas):
+
+| Tema | Problemas do arquivo | Reclamações |
+|---|---|---|
+| atraso/cancelamento | Cancelamento de voo; Atraso de voo; Negativa de embarque (preterição/overbooking); Falta de assistência (comunicação, alimentação, acomodação, traslado) em atraso/cancelamento; Falta de informação sobre atraso/cancelamento | 33.177 |
+| atendimento | SAC (demanda não resolvida, dificuldade de contato, para cancelar, descortesia, protocolo); Dificuldade de contato em outros canais; Má qualidade no atendimento; Informações incompletas; Dificuldade/demora para alterar voo, cancelar o serviço, alterar ou cancelar contrato, alterar nome | 32.788 |
+| preco | Cobrança indevida para alterar/cancelar; Tarifas/taxas não informadas; Cobrança em duplicidade; Cobrança por serviço não contratado ou não fornecido; Venda casada | 17.626 |
+| bagagem | Extravio/avaria de bagagem; Embarque com bagagem de mão; Cobrança indevida por excesso de bagagem | 14.705 |
+| reembolso | Dificuldade/atraso na devolução de valores / reembolso | 13.710 |
+| canais de venda/app | Dificuldade para contratar o serviço (problemas operacionais, acesso aos canais de venda) | 1.313 |
+| pontos/resgate | Dificuldades com programas de fidelidade / pontuação | 765 |
+| outro | Demais, sobretudo Oferta não cumprida / venda enganosa (8.957), Cancelamento indevido da passagem de volta (3.046, no-show: contrato, não operação), dano físico, atendimento prioritário, acessibilidade, dados pessoais | 20.582 |
+
+- **Limitações:** sem texto livre, então sem citações nem sentimento por texto; satisfação = nota 1–5 de quem
+  avaliou (cerca de metade não avalia). Viés de seleção: só quem reclama, e só quem conhece a plataforma. O tema é
+  o problema escolhido pelo consumidor numa lista genérica de consumo; "canais de venda/app" e "pontos/resgate" ficam
+  subcontados (não há item específico; o programa de fidelidade pode estar cadastrado como outra empresa). Sem rota:
+  a ponte com o VRA é só por companhia e mês.
+- **Nome do tema "canais de venda/app" (2026-10-20, auditoria):** antes "app/check-in"; o único problema mapeado é
+  "dificuldade para contratar / acesso aos canais de venda", que não é check-in. O mesmo nome vale no classificador
+  de reviews (`nlp/reviews_sentiment.py`), onde cobre o app e o check-in feito nele.
+- **Denominador da ponte (2026-10-20, auditoria):** reclamações por 10 mil voos usam os voos previstos do VRA
+  **doméstico** (P-02), mas as reclamações incluem voos internacionais, o que infla mais a LATAM. O arquivo não tem
+  campo documentado de doméstico/internacional: a 4ª posição do "Código Classificador ANAC" (D/I/N) se comporta como
+  tal (TAP e American quase só "I", Voepass só "D"; I = 22,2% das reclamações da LATAM, 11,0% da Azul e 4,0% da Gol),
+  mas o dicionário oficial não a descreve (a página de metadados da ANAC só explica tema e subtema, e a Portaria
+  764/SAS que define o código foi revogada em 19/02/2026). Por isso **não filtramos**; o painel declara a distorção.
+- **Download (2026-10-20, auditoria):** vai para `<arquivo>.part` e só é renomeado quando o tamanho bate com o
+  Content-Length; retomada com Range só a partir do `.part`; 416 apaga o `.part` e recomeça uma vez. Com o CSV final
+  no bronze não há chamada de rede (`--force` confere republicação e baixa do zero). Sem rede, segue com o bronze
+  local e avisa. Testado sem rede em `tests/test_consumidor_offline.py`.
+- **Ponte com a ameaça A (painel, descritiva):** reclamações de atraso/cancelamento por 10 mil voos previstos (VRA,
+  `gold.route_disruptions`, AZU+ACN como Azul, P-15) por companhia e mês, e correlação mensal da Azul com o % de voos
+  com atraso > 30 min e o % cancelado. Não toca cliente sintético nem o gerador.
+- **Proposta de peso por tema no CRM (não implementada, gerador congelado):** a participação de atraso/cancelamento
+  nas reclamações da Azul e a nota desse tema reforçariam o peso da ameaça A (P-12) e a prioridade de
+  `recuperacao_servico` (P-17); reembolso e atendimento, o `contato_humano`; pontos/resgate, o desafio de nível.
+- **Reviews de loja recusados (termos de uso, lidos em 2026-10-20):** Google Play: os Termos de Serviço do Google
+  (https://policies.google.com/terms?hl=pt-BR, "Não abuse dos nossos serviços") proíbem acesso automatizado que viole
+  o robots.txt, e `play.google.com/robots.txt` tem `Disallow: /apps`, `/store/getreviews` e `/_` (endpoint usado pelo
+  `google-play-scraper`). App Store: os Termos dos Serviços de Mídia da Apple
+  (https://www.apple.com/legal/internet-services/itunes/br/terms.html, seção F) proíbem processo automatizado para
+  coletar ou analisar o Conteúdo, e `itunes.apple.com/robots.txt` tem `Disallow: /*/rss/*` (cobre o feed
+  `customerreviews`). Reclame Aqui: página de termos com HTTP 403; sem confirmação, não coletamos.
+- **Plugue real (pronto, sem dado):** `pipelines/ingest_reviews_export.py` lê o relatório de avaliações do Google
+  Play Console (CSV UTF-16, colunas documentadas em https://support.google.com/googleplay/android-developer/answer/6135870)
+  e a resposta JSON da App Store Connect API `customerReviews` (a Apple não tem CSV de reviews; atributos em
+  https://developer.apple.com/documentation/appstoreconnectapi/customerreview/attributes-data.dictionary), anonimiza
+  na ingestão e grava `silver.reviews`; `nlp/reviews_sentiment.py` classifica tema (multirrótulo) e sentimento por
+  regras e grava a tabela irmã `gold.review_themes` (`contracts/export_review_themes.yaml`). Testado só com fixture
+  fictício; validação manual de 100 amostras pendente até haver export real (`nlp/README.md`).

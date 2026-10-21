@@ -1,0 +1,20 @@
+table: gold.review_themes
+layer: gold
+version: 1
+description: >
+  PLUGUE (só existe com export oficial de reviews da Azul; P-18). Tabela irmã de gold.friction_themes: reviews do
+  app por fonte, tema (multirrótulo: um review conta em cada tema que recebeu), mês e sentimento. Prefixo export_
+  para ficar fora do tests/test_contratos.py enquanto não há export; conferido contra o fixture em
+  nlp/tests/test_reviews.py.
+produced_by: nlp/reviews_sentiment.py (entrada pipelines/ingest_reviews_export.py -> silver.reviews)
+sources: [export Google Play Console (CSV), App Store Connect API customerReviews (JSON)]
+storage:
+  format: parquet
+  path: data/gold/review_themes/data.parquet
+grain: [fonte, tema, ano_mes, sentimento]
+columns:
+  - {name: fonte, type: VARCHAR, nullable: false, description: "google_play ou app_store"}
+  - {name: tema, type: VARCHAR, nullable: false, description: Tema da taxonomia fechada (igual a gold.friction_themes)}
+  - {name: ano_mes, type: VARCHAR(7), nullable: false, description: "Mês do review 'AAAA-MM'"}
+  - {name: sentimento, type: VARCHAR, nullable: false, description: "negativo, neutro ou positivo (nota + léxico, nlp/README.md)"}
+  - {name: reviews, type: BIGINT, nullable: false, description: Reviews no grupo}

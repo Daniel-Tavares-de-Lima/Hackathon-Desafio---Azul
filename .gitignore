@@ -9,3 +9,5 @@ __pycache__/
 
 # cache e log local do painel
 app/.cache/
+data/bronze/consumidor/
+data/bronze/reviews_export/

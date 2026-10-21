@@ -1,0 +1,20 @@
+table: silver.reviews
+layer: silver
+version: 1
+description: >
+  PLUGUE (só existe com export oficial de reviews da Azul; P-18). Um review do app por linha, anonimizado na
+  ingestão: sem autor, apelido, aparelho, idioma, link, ids nem resposta da empresa; e-mail, CPF, telefone,
+  localizador e nome após palavra-gatilho trocados por marcador. Prefixo export_ para ficar fora do
+  tests/test_contratos.py enquanto não há export; conferido contra o fixture em nlp/tests/test_reviews.py.
+produced_by: pipelines/ingest_reviews_export.py
+storage:
+  format: parquet
+  path: data/silver/reviews/data.parquet
+grain: [review (o export não traz id estável após anonimizar)]
+columns:
+  - {name: fonte, type: VARCHAR, nullable: false, description: "google_play ou app_store"}
+  - {name: data, type: DATE, nullable: false, description: Data de envio do review}
+  - {name: ano_mes, type: VARCHAR(7), nullable: false, description: "Mês 'AAAA-MM'"}
+  - {name: nota, type: INTEGER, nullable: false, description: Estrelas 1 a 5}
+  - {name: texto, type: VARCHAR, nullable: false, description: Título + texto, anonimizados}
+  - {name: versao_app, type: VARCHAR, nullable: true, description: Versão do app (só Google Play)}

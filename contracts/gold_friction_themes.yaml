@@ -1,0 +1,25 @@
+table: gold.friction_themes
+layer: gold
+version: 1
+description: >
+  Atrito público por tema: reclamações do Consumidor.gov.br contra companhias aéreas, agregadas por empresa, tema e
+  mês, com satisfação e resolução. Sem texto livre e sem dado pessoal. Viés: só quem reclama (PREMISSAS P-18).
+produced_by: pipelines/ingest_consumidor.py
+sources: [silver.consumidor_aereo]
+storage:
+  format: parquet (zstd)
+  path: data/gold/friction_themes/data.parquet
+grain: [empresa, tema, ano_mes]
+columns:
+  - {name: empresa, type: VARCHAR(6), nullable: false, description: "AZU, GLO, TAM ou OUTRAS"}
+  - {name: tema, type: VARCHAR, nullable: false, description: Tema da taxonomia fechada (ver silver.consumidor_aereo)}
+  - {name: ano_mes, type: VARCHAR(7), nullable: false, description: "Mês de abertura 'AAAA-MM'"}
+  - {name: reclamacoes, type: BIGINT, nullable: false, description: Reclamações abertas no mês}
+  - {name: avaliadas, type: BIGINT, nullable: false, description: Reclamações com nota do consumidor}
+  - {name: nota_media, type: "DECIMAL(4,2)", nullable: true, description: Nota média de satisfação 1 a 5 (nulo se nenhuma avaliada)}
+  - {name: pct_resolvidas, type: "DECIMAL(6,2)", nullable: true, unit: "%", description: "100 x Resolvida / (Resolvida + Não Resolvida), só avaliadas pelo consumidor"}
+  - {name: pct_insatisfeitos, type: "DECIMAL(6,2)", nullable: true, unit: "%", description: 100 x notas 1 ou 2 / notas dadas}
+  - {name: pct_respondidas, type: "DECIMAL(6,2)", nullable: false, unit: "%", description: 100 x respondidas pela empresa / reclamações}
+  - {name: tempo_resposta_medio_dias, type: "DECIMAL(6,2)", nullable: true, description: Média de dias até a resposta da empresa}
+quality:
+  - grão único (validado no build)

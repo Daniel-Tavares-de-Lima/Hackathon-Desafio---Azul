@@ -1,0 +1,13 @@
+Package Name,App Version Code,App Version Name,Reviewer Language,Device,Review Submit Date and Time,Review Submit Millis Since Epoch,Review Last Update Date and Time,Review Last Update Millis Since Epoch,Star Rating,Review Title,Review Text,Developer Reply Date and Time,Developer Reply Millis Since Epoch,Developer Reply Text,Review Link
+com.exemplo.ficticio,101,1.0.1,pt,aparelho_x,2026-01-05T10:00:00Z,0,,,1,[FICTICIO],Voo atrasou 4 horas e ninguém explicou nada. Péssimo.,,,,https://exemplo.invalid/1
+com.exemplo.ficticio,101,1.0.1,pt,aparelho_x,2026-01-07T10:00:00Z,0,,,2,[FICTICIO],Minha mala foi extraviada e até agora nada.,,,,https://exemplo.invalid/2
+com.exemplo.ficticio,101,1.0.1,pt,aparelho_x,2026-01-09T10:00:00Z,0,,,1,[FICTICIO],Pedi reembolso faz dois meses. Meu email é fulano.teste@exemplo.com e CPF 123.456.789-09,,,,https://exemplo.invalid/3
+com.exemplo.ficticio,101,1.0.1,pt,aparelho_x,2026-01-11T10:00:00Z,0,,,5,[FICTICIO],Aplicativo ótimo, check-in rápido e fácil.,,,,https://exemplo.invalid/4
+com.exemplo.ficticio,102,1.0.2,pt,aparelho_x,2026-01-13T10:00:00Z,0,,,1,[FICTICIO],O app trava no login e dá erro no cartão de embarque.,,,,https://exemplo.invalid/5
+com.exemplo.ficticio,102,1.0.2,pt,aparelho_x,2026-02-02T10:00:00Z,0,,,3,[FICTICIO],Atendimento demorado mas resolveu. Liguei para (11) 98765-4321.,,,,https://exemplo.invalid/6
+com.exemplo.ficticio,102,1.0.2,pt,aparelho_x,2026-02-04T10:00:00Z,0,,,2,[FICTICIO],Não consegui resgatar meus pontos, a categoria caiu sem aviso.,,,,https://exemplo.invalid/7
+com.exemplo.ficticio,102,1.0.2,pt,aparelho_x,2026-02-06T10:00:00Z,0,,,2,[FICTICIO],Passagem muito cara e cobraram taxa escondida.,,,,https://exemplo.invalid/8
+com.exemplo.ficticio,102,1.0.2,pt,aparelho_x,2026-02-08T10:00:00Z,0,,,5,[FICTICIO],Péssimo, horrível, voo cancelado e descaso total.,,,,https://exemplo.invalid/9
+com.exemplo.ficticio,102,1.0.2,pt,aparelho_x,2026-02-10T10:00:00Z,0,,,4,[FICTICIO],Gostei da viagem.,,,,https://exemplo.invalid/10
+com.exemplo.ficticio,103,1.0.3,pt,aparelho_x,2026-02-12T10:00:00Z,0,,,1,[FICTICIO],A atendente Maria Souza foi grosseira. Localizador XK7Q2P.,,,,https://exemplo.invalid/11
+com.exemplo.ficticio,103,1.0.3,pt,aparelho_x,2026-02-14T10:00:00Z,0,,,3,[FICTICIO],Não funciona direito.,2026-02-15T10:00:00Z,0,Olá! Sou o atendente Pedro da equipe.,https://exemplo.invalid/12

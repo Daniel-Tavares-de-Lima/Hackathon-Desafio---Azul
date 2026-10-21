@@ -1,0 +1,11 @@
+{"_aviso": "FICTICIO: dados inventados para teste, formato da resposta de GET /v1/apps/{id}/customerReviews",
+ "data": [
+  {"type": "customerReviews", "id": "f1", "attributes": {"rating": 1, "title": "[FICTICIO]", "body": "Cancelaram meu voo e não remarcaram.", "reviewerNickname": "apelido1", "createdDate": "2026-01-06T09:00:00-03:00", "territory": "BRA"}},
+  {"type": "customerReviews", "id": "f2", "attributes": {"rating": 5, "title": "[FICTICIO]", "body": "Excelente app, recomendo.", "reviewerNickname": "apelido2", "createdDate": "2026-01-08T09:00:00-03:00", "territory": "BRA"}},
+  {"type": "customerReviews", "id": "f3", "attributes": {"rating": 2, "title": "[FICTICIO]", "body": "Bagagem danificada e o SAC não responde.", "reviewerNickname": "apelido3", "createdDate": "2026-01-10T09:00:00-03:00", "territory": "BRA"}},
+  {"type": "customerReviews", "id": "f4", "attributes": {"rating": 3, "title": "[FICTICIO]", "body": "Bom, mas o preço subiu.", "reviewerNickname": "apelido4", "createdDate": "2026-01-12T09:00:00-03:00", "territory": "BRA"}},
+  {"type": "customerReviews", "id": "f5", "attributes": {"rating": 4, "title": "[FICTICIO]", "body": "Viagem tranquila.", "reviewerNickname": "apelido5", "createdDate": "2026-02-03T09:00:00-03:00", "territory": "BRA"}},
+  {"type": "customerReviews", "id": "f6", "attributes": {"rating": 1, "title": "[FICTICIO]", "body": "Estorno nunca caiu no cartão.", "reviewerNickname": "apelido6", "createdDate": "2026-02-05T09:00:00-03:00", "territory": "BRA"}},
+  {"type": "customerReviews", "id": "f7", "attributes": {"rating": 2, "title": "[FICTICIO]", "body": "Resgate de milhas impossível pelo aplicativo.", "reviewerNickname": "apelido7", "createdDate": "2026-02-07T09:00:00-03:00", "territory": "BRA"}},
+  {"type": "customerReviews", "id": "f8", "attributes": {"rating": 1, "title": "[FICTICIO]", "body": "Fiquei 3 horas esperando, atraso sem assistência.", "reviewerNickname": "apelido8", "createdDate": "2026-02-09T09:00:00-03:00", "territory": "BRA"}}
+ ]}
