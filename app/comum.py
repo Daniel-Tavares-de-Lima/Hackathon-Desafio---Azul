@@ -9,6 +9,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -31,12 +32,30 @@ ACOES = {
     "contato_humano": "Contato humano",
     "sem_acao_automatica": "Sem ação automática",
 }
+DETALHES = nba_agent.NOME_GATILHO  # id técnico da ameaça -> nome legível
+FAIXAS = nba_agent.NOME_FAIXA
+num = nba_agent.br  # número no padrão brasileiro: num(1234.5, 1) -> '1.234,5'
+# Eixo Altair no padrão brasileiro: troca o separador de milhar (,) por ponto e o decimal (.) por vírgula.
+TROCA_BR = ("replace(replace(replace({x}, regexp(',', 'g'), '_'), regexp('[.]', 'g'), ','), regexp('_', 'g'), '.')")
 DEMO_A = "9132e89e-9a62-4c3a-8cb0-51f621090395"
 DEMO_NIVEL = "85e407cb-e65a-4be9-a5ab-eb6b99cbecd0"
 
 
 def brl(v: float) -> str:
-    return f"R$ {v:,.0f}".replace(",", ".")
+    return f"R$ {num(v)}"
+
+
+def eixo_br(titulo: str, fmt: str = ",.0f", **kw) -> alt.Axis:
+    """Eixo com rótulos no padrão brasileiro (format do d3 + troca de separadores no Vega)."""
+    return alt.Axis(title=titulo, format=fmt, labelExpr=TROCA_BR.format(x="datum.label"), **kw)
+
+
+def tabela_br(df: pd.DataFrame, casas: dict):
+    """Styler com números no padrão brasileiro. casas = {coluna: nº de casas, ou 'pct' para fração 0-1}.
+    A ordenação da tabela continua pelo valor numérico."""
+    fmt = {c: (lambda v: "" if pd.isna(v) else f"{num(100 * v, 1)}%") if k == "pct" else
+           (lambda v, k=k: "" if pd.isna(v) else num(v, k)) for c, k in casas.items() if c in df}
+    return df.style.format(fmt)
 
 
 @st.cache_data(show_spinner=False)
@@ -46,6 +65,17 @@ def scores() -> pd.DataFrame:
     s = s.assign(receita_em_risco=s.p_evasao * s.clv_previsto_6m_brl)
     s["faixa_valor"] = s.decil_score.map(nba_agent.faixa_valor)
     return s
+
+
+@st.cache_data(show_spinner=False)
+def rotas_b() -> tuple[int, int]:
+    """Pares (não direcionais) de gold.route_exits em set/2025–ago/2026 (docs/ROTEIRO_PITCH.md): saída = saida_total
+    com mes_saida na janela; redução = reducao na janela, fora dos pares com saída total em algum mês da janela."""
+    e = tools._tabela(tools.GOLD, "route_exits")
+    w = e[(e.ano_mes >= "2025-09") & (e.ano_mes <= "2026-08")]
+    saida = w[w.saida_total & (w.mes_saida >= "2025-09") & (w.mes_saida <= "2026-08")].par_rota.nunique()
+    reducao = len(set(w[w.reducao].par_rota) - set(w[w.saida_total].par_rota))
+    return int(saida), int(reducao)
 
 
 @st.cache_data(show_spinner=False)
@@ -66,6 +96,7 @@ def radar() -> pd.DataFrame:
         tipos=("tipo_ameaca", lambda x: "".join(sorted(set(x)))),
         rota=("par_rota", "first"), ultima=("data_ameaca", "first")).reset_index()
     por_cli["principal"] = por_cli.tipos.str[0]  # prioridade A > B > C, a mesma do agente
+    por_cli["rota"] = por_cli.rota.map({r: nba_agent.rota(r) for r in por_cli.rota.unique()})  # cidades (VRA)
     return por_cli.merge(scores(), on="cliente_id")
 
 
@@ -74,7 +105,7 @@ def lote_nba() -> pd.DataFrame:
     """Decisões do agente em lote (app/lote.py). Gera o arquivo se faltar (~1 minuto)."""
     import lote
     if lote.defasado():  # score, código do agente ou KB mais novos que o cache
-        with st.spinner("Rodando o agente em lote para ~12.700 clientes (~1 minuto, só na primeira vez)..."):
+        with st.spinner("Atualizando as recomendações em lote (~1 min)...", show_time=True):
             subprocess.run([sys.executable, "-I", str(APP / "lote.py")], check=True)
     return pd.read_parquet(lote.SAIDA).merge(scores(), on="cliente_id")
 
@@ -111,11 +142,13 @@ def painel_decisao(dec: dict, chave: str):
         return
     st.markdown(f"### Ação recomendada: {ACOES[acao]}")
     c1, c2, c3 = st.columns(3)
-    c1.metric("ROI estimado", brl(dec["roi_estimado"]))
+    c1.metric("Retorno estimado", brl(dec["roi_estimado"]))
     c2.metric("Custo estimado", brl(dec["custo_estimado"]))
-    c3.metric("Canal", dec["canal"].replace("_", " "))
+    c3.metric("Canal", "Humano" if dec["canal"] == "atendimento_humano" else "App",
+              help="Humano = atendimento por especialista; App = mensagem pelo aplicativo")
     st.markdown(f"**Justificativa.** {md(dec['justificativa'])}")
-    st.caption("ROI usa efeito suposto (calibração própria, sem experimento; docs/PREMISSAS.md, P-17).")
+    st.caption("O retorno usa um efeito suposto (calibração própria, sem experimento). Premissas: docs/PREMISSAS.md, "
+               "P-11 (níveis) e P-17 (efeitos, custos e teto).")
     st.markdown("**Regras citadas**")
     for r in dec["regras_citadas"]:
         selo = f" · :orange-badge[{r['status']}]" if r["status"] else ""
@@ -125,7 +158,7 @@ def painel_decisao(dec: dict, chave: str):
     dc = dec.get("decisao_comercial")
     if dc:
         st.markdown(f"**Decisão comercial (sem regra pública)**  \n- {dc['item']}: "
-                    f"{dc['pontos']:,} pontos ({md(brl(dc['custo_brl']))}), sujeito à aprovação humana".replace(",", "."))
+                    f"{num(dc['pontos'])} pontos ({md(brl(dc['custo_brl']))}), sujeito à aprovação humana")
     texto = st.text_area("Mensagem ao cliente (editável)", dec["mensagem"], key=f"msg_{chave}", height=120)
     oferta = dec["mensagem_oferta"]
     st.caption("Só a frase de contexto pode ser editada. A oferta (números, pontos, prazos e condições) precisa ficar "
@@ -134,11 +167,11 @@ def painel_decisao(dec: dict, chave: str):
     erros = guardrails.checar_mensagem_editada(texto, dec["mensagem"][: -len(oferta)].strip(), oferta)
     if erros:
         st.error("Guardrail: " + "; ".join(erros) + ". Ajuste o texto antes de aprovar.")
-    b1, b2, _ = st.columns([1, 1, 4])
-    if b1.button("Aprovar", key=f"aprovar_{chave}", type="primary", disabled=bool(erros)):
+    botoes = st.container(horizontal=True)
+    if botoes.button("Aprovar", key=f"aprovar_{chave}", type="primary", disabled=bool(erros)):
         _registrar(dec, texto, "aprovada")
         st.success("Aprovada e registrada no log local (app/.cache/aprovacoes.jsonl). Nada foi enviado ao cliente.")
-    if b2.button("Descartar", key=f"descartar_{chave}"):
+    if botoes.button("Descartar", key=f"descartar_{chave}"):
         _registrar(dec, texto, "descartada")
         st.info("Descartada e registrada no log local.")
     with st.expander("JSON completo do agente"):

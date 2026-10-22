@@ -11,7 +11,10 @@ import os
 import re
 import sys
 import urllib.request
+from functools import lru_cache
 from pathlib import Path
+
+import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I tira o diretório do script do sys.path
 import guardrails  # noqa: E402
@@ -39,6 +42,62 @@ def faixa_valor(decil: int) -> str:
 
 def faixa_risco(p: float) -> str:
     return "alto" if p >= 0.35 else "medio" if p >= 0.20 else "baixo"
+
+
+# --- Só redação: nomes legíveis e números no padrão brasileiro. Nada aqui entra na decisão. ---
+NOME_GATILHO = {
+    "grave_2_eventos_90d": "dois atrasos graves em 90 dias",
+    "saida_total": "saída total da Azul na rota",
+    "reducao": "redução de oferta da Azul na rota",
+    "queda_tarifa": "queda de tarifa de concorrente na rota",
+    "perto_de_cair_de_nivel": "perto de cair de nível",
+}
+NOME_ACAO = {
+    "recuperacao_servico": "recuperação de serviço",
+    "oferta_rota_favorita": "oferta na rota favorita",
+    "bonus_pontos": "bônus de pontos",
+    "upgrade": "upgrade com pontos",
+    "desafio_manutencao_nivel": "desafio de manutenção de nível",
+    "contato_humano": "contato humano",
+}
+NOME_FAIXA = {"alto": "alto", "medio": "médio", "baixo": "baixo"}
+_MINUSCULAS = {"de", "da", "do", "das", "dos", "e"}
+
+
+def br(v: float, casas: int = 0) -> str:
+    """1234.5 -> '1.234,5' (milhar com ponto, decimal com vírgula)."""
+    return f"{v:,.{casas}f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def faixa_decil(d: int) -> str:
+    """Decil do score em português: 1 = 'entre os 10% de maior valor'."""
+    return "entre os 10% de maior valor" if d == 1 else f"na faixa de {10 * (d - 1)}% a {10 * d}% de maior valor"
+
+
+@lru_cache(maxsize=1)
+def _cidades() -> dict:
+    """ICAO -> cidade, da descrição publicada no VRA da ANAC ('AEROPORTO - CIDADE - UF - BRASIL')."""
+    try:
+        v = pd.read_parquet(tools.SILVER / "anac_vra", columns=["origem_icao", "origem_descricao"])
+    except Exception:  # sem silver do VRA: a mensagem fica com o código ICAO
+        return {}
+    v = v[v.origem_descricao.str.count(" - ") >= 3]
+    cid = v.origem_descricao.str.rsplit(" - ", n=3).str[1].str.strip()
+    nomes = cid.groupby(v.origem_icao).agg(lambda x: x.mode().iloc[0])
+    return {k: " ".join(w.lower() if w.lower() in _MINUSCULAS else w.capitalize() for w in n.split())
+            for k, n in nomes.items()}
+
+
+def cidade(icao: str) -> str:
+    """Nome da cidade do aeroporto; volta o código se faltar o nome ou se ele tropeçar no guardrail
+    (ex.: 'Cruzeiro do Sul' casa com o termo de região 'sul')."""
+    nome = _cidades().get(icao)
+    return nome if nome and not guardrails.checar_texto(nome, set()) else icao
+
+
+def rota(par_rota: str) -> str:
+    a, b = par_rota.split("-")
+    return f"{cidade(a)}–{cidade(b)}"
 
 
 def abster(cliente_id: str, motivo: str, gatilho=None) -> dict:
@@ -92,9 +151,9 @@ def _trajeto(g: dict) -> str:
     alt = g["alternativa"]
     partes = []
     if alt["voos_diretos_mes"]:
-        partes.append(f"{alt['voos_diretos_mes']} opções de voo direto {alt['origem']}->{alt['destino']} no mês")
+        partes.append(f"{alt['voos_diretos_mes']} opções de voo direto {cidade(alt['origem'])} → {cidade(alt['destino'])} no mês")
     if alt["hub"]:
-        partes.append(f"conexão via {alt['hub']} (até {alt['voos_conexao_mes']} voos por perna no mês)")
+        partes.append(f"conexão via {cidade(alt['hub'])} (até {alt['voos_conexao_mes']} voos por perna no mês)")
     return " e ".join(partes)
 
 
@@ -143,19 +202,19 @@ def texto_oferta(acao: str, g: dict, roi: dict) -> str:
     """Parte fixa da mensagem: números, pontos, R$, prazos e condições. Nunca passa pelo LLM nem muda depois."""
     pts = f"{roi['pontos']:,}".replace(",", ".")
     if acao == "recuperacao_servico":
-        return (f"A mais recente foi no trecho {g['origem_icao']}->{g['destino_icao']}. Vamos acompanhar seus próximos "
+        return (f"A mais recente foi no trecho {cidade(g['origem_icao'])} → {cidade(g['destino_icao'])}. Vamos acompanhar seus próximos "
                 f"voos de perto: se houver nova espera, você terá a assistência prevista (alimentação e, com pernoite, "
                 f"hospedagem) e as opções de reacomodação pelo canal digital. Como reconhecimento, vamos creditar "
                 f"{pts} pontos Azul Fidelidade na sua conta.")
     if acao == "oferta_rota_favorita":
-        return (f"Para a rota {g['par_rota']}, há {_trajeto(g)}. Na primeira viagem pelo novo trajeto, vamos creditar "
+        return (f"Para a rota {rota(g['par_rota'])}, há {_trajeto(g)}. Na primeira viagem pelo novo trajeto, vamos creditar "
                 f"{pts} pontos Azul Fidelidade, além dos pontos do seu nível.")
     if acao == "bonus_pontos":
-        return (f"Nas suas próximas viagens na rota {g['par_rota']}, vamos creditar {pts} pontos Azul Fidelidade "
+        return (f"Nas suas próximas viagens na rota {rota(g['par_rota'])}, vamos creditar {pts} pontos Azul Fidelidade "
                 f"extras, somados aos pontos do seu nível.")
     if acao == "upgrade":
         return (f"Como Diamante Unique, você tem 40% de desconto no upgrade de cabine com pontos. Para a sua próxima "
-                f"viagem na rota {g['par_rota']}, vamos creditar {pts} pontos Azul Fidelidade para usar nesse upgrade.")
+                f"viagem na rota {rota(g['par_rota'])}, vamos creditar {pts} pontos Azul Fidelidade para usar nesse upgrade.")
     if acao == "desafio_manutencao_nivel":
         # Só o que falta: caminho já cumprido não aparece e nunca sai "faltam 0" (escolher_gatilho garante algo > 0).
         # A validade do nível de 2025 até o fim de 2026 (P-11, sem fonte confirmada) fica só na justificativa.
@@ -167,7 +226,7 @@ def texto_oferta(acao: str, g: dict, roi: dict) -> str:
         return (f"Faltam {meta} até 31/12 para garantir o nível {g['nivel']} em 2027. Se cumprir esse desafio, vamos "
                 f"creditar {pts} pontos Azul Fidelidade de bônus.")
     if acao == "contato_humano":
-        return (f"Um especialista da Azul vai falar com você sobre a rota {g['par_rota']} para montar o melhor trajeto "
+        return (f"Um especialista da Azul vai falar com você sobre a rota {rota(g['par_rota'])} para montar o melhor trajeto "
                 f"para as suas próximas viagens.")
     raise ValueError(acao)
 
@@ -203,8 +262,8 @@ def decidir(cliente_id: str) -> dict:
         raise ClienteInexistente(f"cliente não encontrado: {cliente_id}")
     p, clv = scores["p_evasao"], scores["clv_previsto_6m_brl"]
     if p is None:
-        return abster(cliente_id, "cliente não elegível à evasão (menos de 3 trechos esperados em 6 meses), "
-                                  "sem p_evasao não há ROI estimável")
+        return abster(cliente_id, "cliente não elegível à evasão (menos de 3 trechos esperados em 6 meses): "
+                                  "sem risco de evasão estimado não há retorno calculável")
     valor, risco = faixa_valor(int(scores["decil_score"])), faixa_risco(p)
     ameacas = tools.get_threats(cliente_id)
     escolha = escolher_gatilho(perfil, ameacas)
@@ -213,23 +272,25 @@ def decidir(cliente_id: str) -> dict:
                                   "180 dias e nível sem risco de queda)")
     acao, g = escolha
     gatilho = g["detalhe"]
+    nome_g = NOME_GATILHO.get(gatilho, gatilho)
     # Matriz valor x risco (P-17): valor baixo não recebe ação com custo; risco baixo só recebe recuperação de serviço.
     if valor == "baixo":
-        return abster(cliente_id, f"valor baixo (decil {scores['decil_score']}): ação com custo não se justifica, "
+        return abster(cliente_id, f"valor baixo (fora dos 50% de maior valor): ação com custo não se justifica, "
                                   "fica a assistência regulatória padrão", gatilho)
     if risco == "baixo" and acao != "recuperacao_servico":
-        return abster(cliente_id, f"risco baixo (p_evasao {p:.2f} < 0,20): gatilho '{gatilho}' não justifica ação "
+        return abster(cliente_id, f"risco baixo (risco de evasão {br(p, 2)}, abaixo de 0,20): {nome_g} não justifica ação "
                                   "com custo", gatilho)
     if not perfil["consentimento_marketing"] and acao in MARKETING:
         if gatilho in ("saida_total", "reducao"):
             acao = "contato_humano"  # mudança de rota é serviço: humano informa, sem oferta de marketing
         else:
-            return abster(cliente_id, f"gatilho '{gatilho}' só admite ação de marketing e o cliente não deu "
+            return abster(cliente_id, f"{nome_g} só admite ação de marketing e o cliente não deu "
                                       "consentimento de marketing (LGPD)", gatilho)
     roi = tools.estimate_offer_roi(acao, p, clv, tools.canal_humano(acao, valor))
     if roi["roi_estimado"] <= 0:
-        return abster(cliente_id, f"ROI estimado de '{acao}' não é positivo (R$ {roi['roi_estimado']:.2f}; "
-                                  f"valor {valor}, risco {risco}, CLV R$ {clv:.0f}, p_evasao {p:.2f})", gatilho)
+        return abster(cliente_id, f"ROI estimado de {NOME_ACAO[acao]} não é positivo (R$ {br(roi['roi_estimado'], 2)}; "
+                                  f"valor {NOME_FAIXA[valor]}, risco {NOME_FAIXA[risco]}, valor previsto em 6 meses "
+                                  f"R$ {br(clv)}, risco de evasão {br(p, 2)})", gatilho)
     consulta = f"{acao.replace('_', ' ')} {gatilho.replace('_', ' ')} {perfil['nivel_vigente']} " \
                f"{' '.join(tools.BENEFICIOS_ACAO[acao]).replace('_', ' ')}"
     regras, faltando = citar_regras(acao, perfil["nivel_vigente"], consulta)
@@ -244,17 +305,22 @@ def decidir(cliente_id: str) -> dict:
     if acao == "recuperacao_servico":
         f = tools.get_route_friction(g["par_rota"])
         if f["pct_atraso_30"] is not None:
-            extra = (f" Rota {f['par_rota']} nos 3 meses até o corte: {f['pct_atraso_30']}% dos voos Azul com "
-                     f"atraso > 30 min e {f['pct_cancelado']}% cancelados (ANAC VRA).")
+            extra = (f" Rota {rota(f['par_rota'])} nos 3 meses até o corte: {br(f['pct_atraso_30'], 1)}% dos voos "
+                     f"Azul com atraso acima de 30 min e {br(f['pct_cancelado'], 1)}% cancelados (ANAC VRA).")
     if acao == "desafio_manutencao_nivel":
-        extra += (f" Nível {g['nivel']} alcançado em 2025 com folga de {100 * g['folga_pct']:.0f}% (< 25%): vale até o "
-                  f"fim de 2026 (P-11); a meta de 2026 ({g['regra']}) garante o nível em 2027.")
-    origem = f"{g['par_rota']}, {g['data_ameaca']}" if "par_rota" in g else f"nível {g['nivel']}, meta de 2026"
-    justificativa = (f"Gatilho '{gatilho}' ({origem}) -> "
-                     f"'{acao}'. Valor {valor} (decil {scores['decil_score']}, CLV 6m R$ {clv:.0f}), risco {risco} "
-                     f"(p_evasao {p:.2f}). ROI = p x CLV x efeito suposto {roi['efeito_suposto']} - custo = "
-                     f"R$ {roi['roi_estimado']:.2f}. Motivos do modelo: {'; '.join(scores['motivos']) or 'nenhum'}."
-                     + extra)
+        extra += (f" Nível {g['nivel']} alcançado em 2025 com folga de {100 * g['folga_pct']:.0f}% (abaixo de 25%): "
+                  f"vale até o fim de 2026; a meta de 2026 ({g['regra']}) garante o nível em 2027.")
+    if "par_rota" in g:
+        a, m, d = g["data_ameaca"].split("-")
+        origem = f"{rota(g['par_rota'])}, {d}/{m}/{a}"
+    else:
+        origem = f"nível {g['nivel']}, meta de 2026"
+    justificativa = (f"Gatilho: {nome_g} ({origem}). Ação: {NOME_ACAO[acao]}. Valor {NOME_FAIXA[valor]} "
+                     f"({faixa_decil(int(scores['decil_score']))}; valor previsto em 6 meses R$ {br(clv)}), risco "
+                     f"{NOME_FAIXA[risco]} (risco de evasão {br(p, 2)}). Retorno estimado: risco de evasão × valor "
+                     f"previsto × efeito suposto de {br(100 * roi['efeito_suposto'])}% − custo = "
+                     f"R$ {br(roi['roi_estimado'], 2)}. Motivos do modelo: "
+                     f"{'; '.join(scores['motivos']) or 'nenhum'}." + extra)
     decisao = {
         "cliente_id": cliente_id, "acao": acao, "gatilho": gatilho, "justificativa": justificativa,
         "regras_citadas": [{"id": r["id"], "url": r["url"], "trecho": r["trecho"], "fonte": r["fonte"],

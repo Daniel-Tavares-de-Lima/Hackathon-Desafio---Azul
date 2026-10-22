@@ -169,6 +169,8 @@
 - **Entradas:** `gold.customer_scores` (sem `regiao_origem`, removida antes de chegar ao agente), `synthetic_clientes`
   (casa, consentimento), `synthetic_fidelidade` (2025 e 2026 até o corte), `synthetic_customer_threats` (só histórico),
   `gold.route_exits` e `gold.route_disruptions` até 2026-02. Nunca `_rotulo`, `synthetic_alvos` nem futuro.
+  `silver.anac_vra` só para o nome do aeroporto na redação (cidade no lugar do ICAO); não entra na decisão. Se o
+  nome disparar o guardrail (ex.: "Juazeiro do Norte"), a mensagem mantém o código ICAO.
 - **Mapeamento ameaça → ação** (prioridade nesta ordem; calibração própria, segue o briefing):
 
 | Gatilho (janela até 2026-02-28) | Ação | Benefícios exigidos na KB |

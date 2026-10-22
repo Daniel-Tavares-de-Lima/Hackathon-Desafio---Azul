@@ -6,7 +6,7 @@ primaryColor = "#4f5d66"
 gatherUsageStats = false
 
 [client]
-toolbarMode = "minimal"
+toolbarMode = "viewer"  # sem botão Deploy nem menu de desenvolvedor
 
 [server]
 address = "localhost"

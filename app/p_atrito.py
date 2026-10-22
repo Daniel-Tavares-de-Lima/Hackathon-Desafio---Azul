@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit as st
 
 import comum
+import nba_agent
 import tools
 
 MIN_VOOS = 90  # par com pelo menos ~1 voo/dia previsto nos 3 meses, para o % não ser ruído
@@ -33,14 +34,15 @@ def rotas() -> pd.DataFrame:
 g = rotas()
 ordem = st.radio("Ordenar por", ["% atraso > 30 min", "% cancelado"], horizontal=True)
 g = g.sort_values("pct_atraso_30" if ordem.startswith("% atraso") else "pct_cancelado", ascending=False)
-st.dataframe(g.head(20)[["par_rota", "voos_previstos", "pct_atraso_30", "pct_cancelado", "alto_valor_voaram",
-                         "alto_valor_com_A"]], hide_index=True, column_config={
-    "par_rota": "Rota", "voos_previstos": "Voos previstos (3m)",
-    "pct_atraso_30": st.column_config.NumberColumn("% atraso > 30 min", format="%.1f"),
-    "pct_cancelado": st.column_config.NumberColumn("% cancelado", format="%.1f"),
-    "alto_valor_voaram": st.column_config.NumberColumn("Alto valor que voou (3m)", format="%d"),
-    "alto_valor_com_A": st.column_config.NumberColumn("Alto valor com ameaça A (90d)", format="%d")})
-st.caption(f"Só pares com pelo menos {MIN_VOOS} voos previstos no período. Alto valor = decis 1 e 2 do score; "
+top = g.head(20).assign(par_rota=lambda d: d.par_rota.map(nba_agent.rota))
+st.dataframe(comum.tabela_br(top[["par_rota", "voos_previstos", "pct_atraso_30", "pct_cancelado", "alto_valor_voaram",
+                                  "alto_valor_com_A"]],
+                             {"voos_previstos": 0, "pct_atraso_30": 1, "pct_cancelado": 1, "alto_valor_voaram": 0,
+                              "alto_valor_com_A": 0}), hide_index=True, column_config={
+    "par_rota": "Rota", "voos_previstos": "Voos previstos (3 meses)", "pct_atraso_30": "% atraso > 30 min",
+    "pct_cancelado": "% cancelado", "alto_valor_voaram": "Alto valor que voou (3 meses)",
+    "alto_valor_com_A": "Alto valor com atraso grave (90 dias)"})
+st.caption(f"Só pares com pelo menos {MIN_VOOS} voos previstos no período. Alto valor = 20% de maior score; "
            "clientes e viagens são sintéticos.")
 
 st.subheader("Temas de reclamação (Consumidor.gov.br)")
