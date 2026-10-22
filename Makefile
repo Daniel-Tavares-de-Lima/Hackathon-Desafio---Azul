@@ -1,7 +1,7 @@
 # Comando unico: make all = ingest -> gold -> synthetic -> ml -> consumidor -> test (painel: make app)
 # Python roda com -I (isolado): dados baixados em data/bronze nunca entram no sys.path.
 ifeq ($(OS),Windows_NT)
-PY := .venv/Scripts/python
+PY := .venv/Scripts/python.exe
 else
 PY := .venv/bin/python
 endif
