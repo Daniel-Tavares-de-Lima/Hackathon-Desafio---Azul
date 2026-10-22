@@ -26,7 +26,7 @@ data/bronze/   fontes públicas brutas (CSV ANAC, reviews, regras Fidelidade em 
 data/silver/   limpas e tipadas (Parquet)
 data/gold/     tabelas analíticas consumidas por modelos e app (Parquet)
 contracts/     schemas YAML + dicionário de dados  <- o que a Azul plugaria no Snowflake
-pipelines/     ingest_*.py (bronze), synthetic/generate.py, dbt/ (silver->gold, adapter duckdb|snowflake)
+pipelines/     ingest_*.py (bronze), sql/*.sql ANSI + build_gold.py (silver->gold; DuckDB local, Snowflake), synthetic/generate.py
 ml/            clv.py, churn.py, segment.py, explain.py, fairness.py, model_card.md
 agent/         nba_agent.py, tools.py, kb/ (RAG regras Azul Fidelidade), guardrails.py
 nlp/           reviews_sentiment.py (atritos da jornada)
@@ -34,7 +34,7 @@ app/           Streamlit (painel)
 api/           FastAPI /score /nba (prova de integração com CRM)
 docs/          decisões (ADR), premissas, pitch
 ```
-Comando único: `make all` = ingest -> synthetic -> dbt build -> train -> score -> app.
+Comando único: `make all` = ingest -> gold -> synthetic -> ml -> consumidor -> test. Painel: `make app`.
 
 ## Definition of Done (vale para todo subagente)
 1. Roda por código, do zero, com `make` (sem passo manual).
