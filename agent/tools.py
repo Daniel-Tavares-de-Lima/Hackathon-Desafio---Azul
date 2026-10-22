@@ -185,9 +185,15 @@ def teto_custo(clv: float) -> float:
     return min(TETO_PCT_CLV * clv, TETO_ABS_BRL) + CUSTO_CONTATO_HUMANO
 
 
-def estimate_offer_roi(acao: str, p_evasao: float, clv: float) -> dict:
+def canal_humano(acao: str, valor: str) -> bool:
+    """Atendimento humano quando a ação exige ou o cliente é de alto valor; mesmo critério do canal e do custo."""
+    return CATALOGO[acao][2] or valor == "alto"
+
+
+def estimate_offer_roi(acao: str, p_evasao: float, clv: float, humano: bool | None = None) -> dict:
     """ROI = p_evasao x CLV x efeito suposto - custo. Custo = pontos (% do CLV, com teto) + contato."""
-    efeito, pct, humano = CATALOGO[acao]
+    efeito, pct, humano_acao = CATALOGO[acao]
+    humano = humano_acao if humano is None else humano
     custo_pontos = min(pct * clv, TETO_PCT_CLV * clv, TETO_ABS_BRL)
     custo = custo_pontos + (CUSTO_CONTATO_HUMANO if humano else CUSTO_CONTATO_DIGITAL)
     pontos = int(round(custo_pontos / VALOR_PONTO_BRL, -2))

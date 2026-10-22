@@ -295,3 +295,20 @@
   na ingestão e grava `silver.reviews`; `nlp/reviews_sentiment.py` classifica tema (multirrótulo) e sentimento por
   regras e grava a tabela irmã `gold.review_themes` (`contracts/export_review_themes.yaml`). Testado só com fixture
   fictício; validação manual de 100 amostras pendente até haver export real (`nlp/README.md`).
+
+## P-19 · Business case: cenários, aceitação e escala (2026-10-21)
+- **Piloto = lote do agente** (`app/.cache/nba_lote.parquet`): elegíveis de decil 1 a 5 (12.734 clientes sintéticos),
+  dos quais 3.408 recebem ação com custo (lote refeito após a correção do custo do canal). Receita protegida = Σ `p_evasao` × CLV 6 m × efeito suposto (P-17) × fator
+  de efeito × aceitação. Contas em `docs/BUSINESS_CASE.md`.
+- **Fator de efeito** sobre os efeitos supostos de P-17: conservador 0,5; base 1,0; otimista 1,5. **Aceitação** (fração
+  dos acionados que aceita a oferta): 30% / 50% / 70%. Calibração própria, sem fonte pública nem experimento.
+- **Custo:** o contato é pago para todo acionado; os pontos só para quem aceita. O custo do contato segue o canal
+  (`tools.canal_humano`): R$ 20 quando a ação exige atendimento humano ou o cliente é de alto valor, R$ 1 pelo app.
+- **Custo do programa fora do cálculo:** implantação, licença de Snowflake e equipe da Azul não têm número público; ficam
+  "a confirmar" e não entram no ROI.
+- **Escala para a Azul real (ilustrativa):** razão (receita protegida ÷ CLV 6 m total da base sintética) × receita de
+  transporte de passageiros do 1S26 (R$ 9.609,3 milhões, release 2T26 da Azul, 13/08/2026,
+  https://api.mziq.com/mzfilemanager/v2/d/ed78542a-4e01-429a-8926-03d69ccfa307/51192f68-386a-a700-cbae-fba020b58c7b?origin=2,
+  acesso em 2026-10-21). Só vale se a concentração de receita e o risco da base sintética se parecerem com os da Azul;
+  a receita do RI inclui voos internacionais e a base sintética só tem tarifa doméstica sem taxas. Ordem de grandeza,
+  não previsão.

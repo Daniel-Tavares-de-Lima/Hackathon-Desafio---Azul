@@ -226,7 +226,7 @@ def decidir(cliente_id: str) -> dict:
         else:
             return abster(cliente_id, f"gatilho '{gatilho}' só admite ação de marketing e o cliente não deu "
                                       "consentimento de marketing (LGPD)", gatilho)
-    roi = tools.estimate_offer_roi(acao, p, clv)
+    roi = tools.estimate_offer_roi(acao, p, clv, tools.canal_humano(acao, valor))
     if roi["roi_estimado"] <= 0:
         return abster(cliente_id, f"ROI estimado de '{acao}' não é positivo (R$ {roi['roi_estimado']:.2f}; "
                                   f"valor {valor}, risco {risco}, CLV R$ {clv:.0f}, p_evasao {p:.2f})", gatilho)
@@ -267,7 +267,7 @@ def decidir(cliente_id: str) -> dict:
         "roi_estimado": roi["roi_estimado"], "custo_estimado": roi["custo_estimado"], "mensagem": mensagem,
         "mensagem_oferta": oferta,
         "contexto_indice": indice + 1,  # qual contexto fixo aprovado abriu a mensagem (1 = padrão)
-        "canal": "atendimento_humano" if tools.CATALOGO[acao][2] or valor == "alto" else "app",
+        "canal": "atendimento_humano" if tools.canal_humano(acao, valor) else "app",
         "requer_aprovacao_humana": True,  # toda ação do catálogo gera custo
     }
     erros = guardrails.validar(decisao, perfil, scores, CONTEXTOS[acao])
