@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ÓRBITA · Radar de Ameaças</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #1C1B20;
+      --bg-soft: #23222A;
+      --surface: #2A2933;
+      --surface-2: #312F3D;
+      --text: #F5F7FB;
+      --text-soft: #B8BCC8;
+      --line: rgba(255,255,255,0.10);
+
+      --accent: #28C2C4;
+      --accent-2: #B0AFFA;
+      --accent-3: #7BE7E8;
+
+      --success: #6EE7B7;
+      --warning: #F6C177;
+      --danger: #FF7B9C;
+
+      --shadow-soft: 0 10px 30px rgba(0,0,0,0.25);
+      --shadow-glow: 0 0 0 1px rgba(40,194,196,0.16), 0 0 32px rgba(40,194,196,0.12);
+
+      --radius-sm: 12px;
+      --radius-md: 20px;
+      --radius-lg: 24px;
+      --radius-xl: 28px;
+
+      --fs-display: clamp(56px, 7vw, 96px);
+      --fs-h1: clamp(40px, 5vw, 72px);
+      --fs-h2: clamp(28px, 3.6vw, 48px);
+      --fs-h3: clamp(20px, 2vw, 28px);
+      --fs-body-lg: clamp(18px, 1.5vw, 24px);
+      --fs-body: 18px;
+      --fs-small: 14px;
+      --fs-mono: 13px;
+
+      --container-pad-y: 56px;
+      --container-pad-x: 64px;
+      --content-max: 1280px;
+
+      --anim-duration: 0.7s;
+      --anim-ease: ease-out;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-snap-type: y mandatory;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(176,175,250,0.10), transparent 30%),
+        radial-gradient(circle at 80% 30%, rgba(40,194,196,0.10), transparent 28%),
+        linear-gradient(180deg, #1C1B20 0%, #17161B 100%);
+      background-attachment: fixed;
+      color: var(--text);
+      font-family: "Chakra Petch", sans-serif;
+      overflow-x: hidden;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .presentation { position: relative; }
+
+    .slide {
+      position: relative;
+      height: 100vh;
+      width: 100%;
+      scroll-snap-align: start;
+      scroll-snap-stop: always;
+      display: grid;
+      place-items: stretch;
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 56px 56px;
+      mask-image: radial-gradient(circle at center, black 45%, transparent 100%);
+      opacity: 0.25;
+      z-index: 0;
+    }
+
+    .slide-inner {
+      position: relative;
+      z-index: 1;
+      height: 100vh;
+      width: min(100%, calc(var(--content-max) + (var(--container-pad-x) * 2)));
+      margin: 0 auto;
+      padding: var(--container-pad-y) var(--container-pad-x);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 28px;
+    }
+
+    .slide-counter {
+      position: absolute;
+      top: 28px;
+      right: 32px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: var(--fs-mono);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--text-soft);
+      z-index: 3;
+    }
+
+    .brand-mark {
+      position: absolute;
+      top: 28px;
+      left: var(--container-pad-x);
+      font-family: "JetBrains Mono", monospace;
+      font-size: var(--fs-mono);
+      letter-spacing: 0.22em;
+      color: var(--text-soft);
+      z-index: 3;
+    }
+
+    .brand-mark b { color: var(--accent); font-weight: 700; }
+
+    /* rodapé de fonte: todo número público cita a origem */
+    .source {
+      position: absolute;
+      left: var(--container-pad-x);
+      right: var(--container-pad-x);
+      bottom: 26px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      line-height: 1.5;
+      color: rgba(184,188,200,0.72);
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      z-index: 3;
+    }
+
+    .mono {
+      font-family: "JetBrains Mono", monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow {
+      font-size: var(--fs-mono);
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      max-width: 760px;
+      font-size: var(--fs-body-lg);
+      line-height: 1.4;
+      color: var(--text-soft);
+      margin: 0;
+    }
+
+    h1, h2, h3, p, blockquote, ul, ol { margin: 0; }
+
+    h1 {
+      font-size: var(--fs-display);
+      line-height: 0.94;
+      letter-spacing: -0.03em;
+      max-width: 13ch;
+    }
+
+    h2 {
+      font-size: var(--fs-h2);
+      line-height: 1.04;
+      letter-spacing: -0.025em;
+      max-width: 22ch;
+    }
+
+    h3 {
+      font-size: var(--fs-h3);
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+    }
+
+    p, li {
+      font-size: var(--fs-body);
+      line-height: 1.45;
+      color: var(--text-soft);
+    }
+
+    .accent-text {
+      color: var(--accent);
+      text-shadow: 0 0 24px rgba(40,194,196,0.18);
+    }
+
+    .accent-2-text { color: var(--accent-2); }
+
+    .section-heading {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 900px;
+    }
+
+    .hero {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      max-width: 1000px;
+    }
+
+    .hero-badge,
+    .tag {
+      align-self: flex-start;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(40,194,196,0.25);
+      background: rgba(40,194,196,0.08);
+      box-shadow: var(--shadow-glow);
+      color: var(--text);
+      font-size: var(--fs-mono);
+      font-family: "JetBrains Mono", monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    /* selo de base sintética: aparece em todo slide com número de cliente */
+    .tag-synth {
+      align-self: flex-start;
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(176,175,250,0.30);
+      background: rgba(176,175,250,0.08);
+      color: var(--accent-2);
+      font-size: 12px;
+      font-family: "JetBrains Mono", monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .head-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+
+    .card-grid,
+    .feature-grid,
+    .stats-grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .card,
+    .feature-card,
+    .stat-card,
+    .diagram-node {
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .card,
+    .feature-card {
+      padding: 26px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .card--accent,
+    .stat-card.accent {
+      border-color: rgba(40,194,196,0.30);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .card-label,
+    .feature-tag,
+    .stat-label {
+      font-family: "JetBrains Mono", monospace;
+      font-size: var(--fs-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+    }
+
+    .threat-letter {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 44px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--accent);
+      text-shadow: 0 0 28px rgba(40,194,196,0.25);
+    }
+
+    .statement {
+      max-width: 17ch;
+      font-size: clamp(36px, 5vw, 72px);
+      line-height: 1.06;
+      letter-spacing: -0.03em;
+      color: var(--text);
+    }
+
+    .quote-slide .slide-inner,
+    .title-slide .slide-inner,
+    .closing-slide .slide-inner { align-items: flex-start; }
+
+    .quote-meta { color: var(--text-soft); margin-top: 12px; }
+
+    .diagram {
+      display: grid;
+      gap: 22px;
+      align-items: stretch;
+    }
+
+    .diagram.n5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .diagram.n4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .diagram-node {
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: relative;
+    }
+
+    .diagram-node.root {
+      border-color: rgba(40,194,196,0.30);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .diagram-node p { font-size: 16px; }
+
+    .diagram-node:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -18px;
+      width: 14px;
+      height: 1px;
+      background: linear-gradient(90deg, rgba(40,194,196,0.6), rgba(176,175,250,0.6));
+    }
+
+    .node-tag {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent-2);
+    }
+
+    .swap-note {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .stat-block {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      justify-content: center;
+    }
+
+    .stat-value {
+      font-size: clamp(72px, 11vw, 180px);
+      line-height: 0.9;
+      letter-spacing: -0.05em;
+      color: var(--text);
+      text-shadow: 0 0 28px rgba(40,194,196,0.08);
+    }
+
+    .stats-grid .stat-card {
+      padding: 28px 24px;
+      min-height: 230px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .stats-grid .stat-value {
+      font-size: clamp(48px, 5.4vw, 88px);
+    }
+
+    .stat-note {
+      font-size: 16px;
+      line-height: 1.4;
+      color: var(--text-soft);
+    }
+
+    .stat-value .unit {
+      font-size: 0.42em;
+      letter-spacing: -0.01em;
+      color: var(--text-soft);
+      margin-left: 4px;
+    }
+
+    .neg { color: var(--danger); }
+    .pos { color: var(--success); }
+
+    .pair-stat {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
+    }
+
+    .pair-stat .stat-card {
+      padding: 36px 32px;
+      min-height: 300px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+
+    .pair-stat .stat-value { font-size: clamp(96px, 13vw, 200px); }
+
+    .steps-list {
+      padding: 0;
+      margin: 0;
+      list-style: none;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 72px 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 20px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .step-num {
+      color: var(--accent);
+      font-size: clamp(18px, 2vw, 24px);
+    }
+
+    .step-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 760px;
+    }
+
+    .step-meta {
+      font-family: "JetBrains Mono", monospace;
+      font-size: var(--fs-mono);
+      color: var(--text-soft);
+      letter-spacing: 0.06em;
+      text-align: right;
+    }
+
+    .step-meta b { color: var(--text); font-weight: 600; }
+
+    .timeline {
+      display: grid;
+      gap: 18px;
+      max-width: 900px;
+    }
+
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 24px 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .timeline-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 0 0 6px rgba(40,194,196,0.08);
+      margin-top: 8px;
+    }
+
+    .timeline-copy {
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .closing-content {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      max-width: 960px;
+    }
+
+    .cta-row {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 52px;
+      padding: 0 22px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-3));
+      color: #081012;
+      box-shadow: var(--shadow-glow);
+    }
+
+    .btn-secondary {
+      background: rgba(255,255,255,0.03);
+      border-color: rgba(255,255,255,0.12);
+      color: var(--text);
+    }
+
+    /* órbita decorativa do slide de título */
+    .orbit {
+      position: absolute;
+      right: -6vw;
+      top: 50%;
+      width: 46vw;
+      height: 46vw;
+      max-width: 720px;
+      max-height: 720px;
+      transform: translateY(-50%);
+      border-radius: 50%;
+      border: 1px solid rgba(40,194,196,0.18);
+      box-shadow: inset 0 0 80px rgba(40,194,196,0.06);
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .orbit::before,
+    .orbit::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+    }
+
+    .orbit::before {
+      inset: 16%;
+      border: 1px dashed rgba(176,175,250,0.22);
+    }
+
+    .orbit::after {
+      width: 14px;
+      height: 14px;
+      top: 12%;
+      left: 18%;
+      background: var(--accent);
+      box-shadow: 0 0 24px 6px rgba(40,194,196,0.45);
+      animation: drift 9s linear infinite;
+      transform-origin: calc(23vw - 18%) calc(23vw - 12%);
+    }
+
+    @keyframes drift {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .animate {
+      opacity: 0;
+      transform: translateY(18px);
+      transition:
+        opacity var(--anim-duration) var(--anim-ease),
+        transform var(--anim-duration) var(--anim-ease);
+      will-change: opacity, transform;
+    }
+
+    .animate.in {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .delay-1 { transition-delay: 80ms; }
+    .delay-2 { transition-delay: 180ms; }
+    .delay-3 { transition-delay: 280ms; }
+    .delay-4 { transition-delay: 380ms; }
+    .delay-5 { transition-delay: 480ms; }
+    .delay-6 { transition-delay: 580ms; }
+
+    .dot-nav {
+      position: fixed;
+      top: 50%;
+      right: 18px;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 100;
+    }
+
+    .dot-nav button {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: none;
+      padding: 0;
+      background: rgba(255,255,255,0.22);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
+      cursor: pointer;
+      transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .dot-nav button.active {
+      background: var(--accent);
+      box-shadow: 0 0 0 6px rgba(40,194,196,0.12);
+      transform: scale(1.12);
+    }
+
+    .dot-nav button:hover { transform: scale(1.08); }
+
+    /* telas baixas (notebook 768-900px de altura): compacta para caber em 100vh */
+    @media (max-height: 860px) {
+      :root {
+        --container-pad-y: 48px;
+        --fs-body: 16px;
+      }
+      .slide-inner { gap: 20px; }
+      .stats-grid .stat-card { min-height: 180px; padding: 22px 20px; }
+      .pair-stat .stat-card { min-height: 230px; }
+      .step { padding: 14px 0; }
+      .card, .feature-card { padding: 20px; }
+    }
+
+    @media (max-width: 1100px) {
+      :root {
+        --container-pad-y: 44px;
+        --container-pad-x: 36px;
+      }
+      .cols-3, .cols-4, .diagram.n4, .diagram.n5, .pair-stat { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .diagram-node::after { display: none; }
+      .orbit { opacity: 0.4; }
+    }
+
+    @media print {
+      html { scroll-snap-type: none; }
+      body { background: #1C1B20; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .dot-nav { display: none; }
+      .slide { height: 100vh; page-break-after: always; break-after: page; }
+      .animate { opacity: 1 !important; transform: none !important; }
+      .orbit::after { animation: none; }
+    }
+
+    @page { size: 1920px 1080px; margin: 0; }
+  </style>
+</head>
+<body>
+  <nav class="dot-nav" aria-label="Navegação dos slides"></nav>
+
+  <main class="presentation">
+
+    <!-- 01 · Título -->
+    <section class="slide title-slide">
+      <div class="orbit" aria-hidden="true"></div>
+      <div class="slide-inner">
+        <div class="slide-counter">01 / 13</div>
+
+        <div class="hero">
+          <div class="hero-badge animate delay-1">Dado público + IA com aprovação humana</div>
+          <div class="eyebrow mono animate delay-2">CRM de alto valor</div>
+          <h1 class="animate delay-3">
+            <span class="accent-text">ÓRBITA</span><br>Radar de Ameaças
+          </h1>
+          <p class="subtitle animate delay-4">
+            Detecta a ameaça concreta que leva o cliente de alto valor embora e propõe a ação antes.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 · Problema (números públicos) -->
+    <section class="slide stats-slide">
+      <div class="slide-inner">
+        <div class="brand-mark"><b>ÓRBITA</b> · O PROBLEMA</div>
+        <div class="slide-counter">02 / 13</div>
+
+        <div class="section-heading">
+          <div class="eyebrow mono animate delay-1">Contexto público</div>
+          <h2 class="animate delay-2">Menos assentos. Cada cliente premium <span class="accent-text">pesa mais.</span></h2>
+        </div>
+
+        <div class="stats-grid cols-4">
+          <div class="stat-card animate delay-1">
+            <div class="stat-value neg">−10,6<span class="unit">%</span></div>
+            <div class="stat-label mono">Capacidade 2T26</div>
+            <p class="stat-note">Assentos-km oferecidos contra o 2T25.</p>
+          </div>
+          <div class="stat-card accent animate delay-2">
+            <div class="stat-value pos">+12,4<span class="unit">%</span></div>
+            <div class="stat-label mono">Receita premium</div>
+            <p class="stat-note">Captura da demanda premium no 2T26.</p>
+          </div>
+          <div class="stat-card animate delay-3">
+            <div class="stat-value">53</div>
+            <div class="stat-label mono">Rotas cortadas</div>
+            <p class="stat-note">Corte anunciado na reestruturação.</p>
+          </div>
+          <div class="stat-card animate delay-4">
+            <div class="stat-value">26,6<span class="unit">%</span></div>
+            <div class="stat-label mono">Reclamações: atraso</div>
+            <p class="stat-note">Atraso ou cancelamento no Consumidor.gov.br.</p>
+          </div>
+        </div>
+
+        <div class="source">
+          Fontes: release de resultados 2T26 da Azul (13/08/2026) · corte de 53 rotas: imprensa (Suno, 11/08/2025) ·
+          Consumidor.gov.br via dados abertos da ANAC, cc-by (set/2024–dez/2025; 12.977 de 48.743 reclamações). Acesso em 21/10/2026.
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 · Tese -->
+    <section class="slide quote-slide">
+      <div class="slide-inner">
+        <div class="brand-mark"><b>ÓRBITA</b> · A TESE</div>
+        <div class="slide-counter">03 / 13</div>
+
+        <blockquote class="statement animate delay-1">
+          O cliente bom não vai embora do nada. Ele sai depois de uma <span class="accent-text">ameaça concreta.</span>
+        </blockquote>
+
+        <div class="quote-meta mono animate delay-2">E essa ameaça aparece no dado público antes do CRM</div>
+      </div>
+    </section>
+
+    <!-- 04 · As três ameaças -->
+    <section class="slide grid-slide">
+      <div class="slide-inner">
+        <div class="brand-mark"><b>ÓRBITA</b> · O QUE VIGIAMOS</div>
+        <div class="slide-counter">04 / 13</div>
+
+        <div class="section-heading">
+          <div class="eyebrow mono animate delay-1">Três ameaças</div>
+          <h2 class="animate delay-2">Vigiadas só com <span class="accent-text">dado público</span> da ANAC</h2>
+        </div>
+
+        <div class="card-grid cols-3">
+          <article class="card animate delay-1">
+            <div class="threat-letter">A</div>
+            <div class="card-label mono">ANAC · Voos realizados</div>
+            <h3>Atraso grave</h3>
+            <p>Dois voos com mais de 60 min de atraso ou cancelados em 90 dias.</p>
+          </article>
+
+          <article class="card animate delay-2">
+            <div class="threat-letter">B</div>
+            <div class="card-label mono">ANAC · Voos realizados</div>
+            <h3>Rota órfã</h3>
+            <p>A Azul saiu do par ou cortou 30% da oferta.</p>
+          </article>
+
+          <article class="card animate delay-3">
+            <div class="threat-letter">C</div>
+            <div class="card-label mono">ANAC · Tarifas</div>
+            <h3>Concorrente baixou tarifa</h3>
+            <p>Queda 15 pontos abaixo da Azul no par, por dois meses.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 · Prova com dado público -->
+    <section class="slide stats-slide">
+      <div class="slide-inner">
+        <div class="brand-mark"><b>ÓRBITA</b> · PROVA</div>
+        <div class="slide-counter">05 / 13</div>
+
+        <div class="section-heading">
+          <div class="eyebrow mono animate delay-1">Set/2025 a ago/2026 · só dado público</div>
+          <h2 class="animate delay-2">O radar já enxerga a <span class="accent-text">rota órfã</span></h2>
+        </div>
+
+        <div class="pair-stat">
+          <div class="stat-card accent animate delay-2">
+            <div class="stat-value">17</div>
+            <div class="stat-label mono">Pares em que a Azul saiu</div>
+            <p class="stat-note">Zero voos por três meses após operar o par.</p>
+          </div>
+          <div class="stat-card animate delay-3">
+            <div class="stat-value">82</div>
+            <div class="stat-label mono">Pares com oferta reduzida</div>
+            <p class="stat-note">Queda de 30% ou mais contra o ano anterior.</p>
+          </div>
+        </div>
+
+        <div class="source">
+          Fonte: ANAC, Voo Regular Ativo (VRA), processado pelo ÓRBITA em gold.route_exits. Pares não direcionais; Azul Conecta conta como Azul.
+          Redução exclui os pares com saída total na janela.
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 · Como funciona -->
+    <section class="slide diagram-slide">
+      <div class="slide-inner">
+        <div class="brand-mark"><b>ÓRBITA</b> · COMO FUNCIONA</div>
+        <div class="slide-counter">06 / 13</div>
+
+        <div class="section-heading">
+          <div class="eyebrow mono animate delay-1">Do sinal à ação</div>
+          <h2 class="animate delay-2">Uma ameaça vira ação, <span class="accent-text">com uma pessoa no controle</span></h2>
+        </div>
+
+        <div class="diagram n5">
+          <div class="diagram-node animate delay-1">
+            <div class="node-tag">01 · Sinal</div>
+            <h3>Dado público</h3>
+            <p>Voos, atrasos, rotas e tarifas da ANAC.</p>
+          </div>
+          <div class="diagram-node animate delay-2">
+            <div class="node-tag">02 · Radar</div>
+            <h3>Ameaças A, B, C</h3>
+            <p>Cruzadas com as rotas de cada cliente.</p>
+          </div>
+          <div class="diagram-node animate delay-3">
+            <div class="node-tag">03 · Modelo</div>
+            <h3>Valor × risco</h3>
+            <p>Risco de evasão, valor previsto e o porquê.</p>
+          </div>
+          <div class="diagram-node animate delay-4">
+            <div class="node-tag">04 · Agente</div>
+            <h3>Próxima ação</h3>
+            <p>Catálogo fechado, regra citada, teto de custo.</p>
+          </div>
+          <div class="diagram-node root animate delay-5">
+            <div class="node-tag">05 · Humano</div>
+            <h3>Aprovação</h3>
+            <p>Nada é enviado sem aprovação do time de CRM.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 · Demo -->
+    <section class="slide steps-slide">
+      <div class="slide-inner">
+        <div class="brand-mark"><b>ÓRBITA</b> · DEMO</div>
+        <div class="slide-counter">07 / 13</div>
+
+        <div class="head-row">
+          <div class="section-heading">
+            <div class="eyebrow mono animate delay-1">Demo do protótipo</div>
+            <h2 class="animate delay-2">Quatro telas, <span class="accent-text">dois clientes</span></h2>
+          </div>
+          <div class="tag-synth animate delay-2">Base sintética · 50 mil clientes fictícios</div>
+        </div>
+
+        <ol class="steps-list">
+          <li class="step animate delay-1">
+            <div class="step-num mono">01</div>
+            <div class="step-copy">
+              <h3>Radar de ameaças</h3>
+              <p>Contadores A, B, C e o mapa valor × risco.</p>
+            </div>
+            <div class="step-meta">corte <b>28/02/2026</b></div>
+          </li>
+          <li class="step animate delay-2">
+            <div class="step-num mono">02</div>
+            <div class="step-copy">
+              <h3>Agir no atraso grave</h3>
+              <p>Recuperação de serviço, regra da ANAC citada, aprovação.</p>
+            </div>
+            <div class="step-meta">retorno <b>R$ 460</b> · custo <b>R$ 183</b></div>
+          </li>
+          <li class="step animate delay-3">
+            <div class="step-num mono">03</div>
+            <div class="step-copy">
+              <h3>Diamante perto de cair</h3>
+              <p>Frequência caiu 73%; desafio para manter a categoria.</p>
+            </div>
+            <div class="step-meta">retorno <b>R$ 474</b> · custo <b>R$ 166</b></div>
+          </li>
+          <li class="step animate delay-4">
+            <div class="step-num mono">04</div>
+            <div class="step-copy">
+              <h3>Simulador de ROI</h3>
+              <p>A diretoria escolhe a verba e vê quem protege.</p>
+            </div>
+            <div class="step-meta">efeitos <b>supostos</b></div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- 08 · O modelo -->
+    <section class="slide stats-slide">
+      <div class="slide-inner">
+        <div class="brand-mark"><b>ÓRBITA</b> · O MODELO</div>
+        <div class="slide-counter">08 / 13</div>
+
+        <div class="head-row">
+          <div class="section-heading">
+            <div class="eyebrow mono animate delay-1">Validação temporal · treino até ago/2025</div>
+            <h2 class="animate delay-2">Medido no futuro, <span class="accent-text">não no passado</span></h2>
+          </div>
+          <div class="tag-synth animate delay-2">Base sintética</div>
+        </div>
+
+        <div class="stats-grid cols-3">
+          <div class="stat-card accent animate delay-1">
+            <div class="stat-value">0,415</div>
+            <div class="stat-label mono">AUC-PR da evasão</div>
+            <p class="stat-note">Contra 0,278 de um palpite aleatório.</p>
+          </div>
+          <div class="stat-card animate delay-2">
+            <div class="stat-value">45<span class="unit">%</span></div>
+            <div class="stat-label mono">Valor no top 10%</div>
+            <p class="stat-note">Do valor futuro, no top 10% previsto (aleatório: 10%).</p>
+          </div>
+          <div class="stat-card animate delay-3">
+            <div class="stat-value">3</div>
+            <div class="stat-label mono">Motivos por cliente</div>
+            <p class="stat-note">Explicados em português pelo SHAP.</p>
+          </div>
+        </div>
+
+        <div class="source">
+          LightGBM avaliado em fev/2026 com modelo treinado até ago/2025. No teste temporal, empata com uma regressão logística simples; declarado no model card.
+          Circularidade: na base sintética o modelo recupera regras que o próprio gerador criou.
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 · Snowflake -->
+    <section class="slide diagram-slide">
+      <div class="slide-inner">
+        <div class="brand-mark"><b>ÓRBITA</b> · INTEGRAÇÃO</div>
+        <div class="slide-counter">09 / 13</div>
+
+        <div class="section-heading">
+          <div class="eyebrow mono animate delay-1">Do notebook ao Snowflake</div>
+          <h2 class="animate delay-2">Troca a fonte. <span class="accent-text">O resto não muda.</span></h2>
+        </div>
+
+        <div class="diagram n4">
+          <div class="diagram-node animate delay-1">
+            <div class="node-tag">Bronze</div>
+            <h3>Fontes brutas</h3>
+            <p>CSVs públicos da ANAC e do Consumidor.gov.br.</p>
+          </div>
+          <div class="diagram-node root animate delay-2">
+            <div class="node-tag">Silver · ponto de troca</div>
+            <h3>Sintético → real</h3>
+            <p>Sai a tabela fictícia, entra a da Azul.</p>
+          </div>
+          <div class="diagram-node animate delay-3">
+            <div class="node-tag">Gold</div>
+            <h3>SQL ANSI</h3>
+            <p>Mesmo SQL no DuckDB local e no Snowflake.</p>
+          </div>
+          <div class="diagram-node animate delay-4">
+            <div class="node-tag">Consumo</div>
+            <h3>Modelos e agente</h3>
+            <p>Painel e API leem as mesmas tabelas.</p>
+          </div>
+        </div>
+
+        <div class="swap-note animate delay-5">
+          <div class="tag">19 contratos YAML</div>
+          <div class="tag">tipos e nulos testados</div>
+          <div class="tag">make all · um comando, reprodutível</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 · IA responsável -->
+    <section class="slide feature-slide">
+      <div class="slide-inner">
+        <div class="brand-mark"><b>ÓRBITA</b> · IA RESPONSÁVEL</div>
+        <div class="slide-counter">10 / 13</div>
+
+        <div class="section-heading">
+          <div class="eyebrow mono animate delay-1">Custo zero · nenhum modelo pago</div>
+          <h2 class="animate delay-2">A IA sugere. <span class="accent-text">Uma pessoa decide.</span></h2>
+        </div>
+
+        <div class="feature-grid cols-3">
+          <article class="feature-card card--accent animate delay-1">
+            <div class="feature-tag mono">Controle</div>
+            <h3>Aprovação humana</h3>
+            <p>Toda ação com custo espera o aprovador.</p>
+          </article>
+          <article class="feature-card animate delay-2">
+            <div class="feature-tag mono">Abstenção</div>
+            <h3>Sem regra, sem ação</h3>
+            <p>Falta regra, consentimento ou retorno: o agente não age.</p>
+          </article>
+          <article class="feature-card animate delay-3">
+            <div class="feature-tag mono">Catálogo</div>
+            <h3>Nada inventado</h3>
+            <p>Seis ações fechadas, cada uma com a regra citada.</p>
+          </article>
+          <article class="feature-card animate delay-4">
+            <div class="feature-tag mono">Linguagem</div>
+            <h3>LLM só escolhe o tom</h3>
+            <p>Entre textos aprovados; nenhum número passa por ele.</p>
+          </article>
+          <article class="feature-card animate delay-5">
+            <div class="feature-tag mono">Justiça</div>
+            <h3>Região medida</h3>
+            <p>A taxa de oferta varia cerca de 15% entre regiões.</p>
+          </article>
+          <article class="feature-card animate delay-6">
+            <div class="feature-tag mono">LGPD</div>
+            <h3>Consentimento respeitado</h3>
+            <p>Sem consentimento, nada de marketing. Sem dado sensível.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 · Business case -->
+    <section class="slide stats-slide">
+      <div class="slide-inner">
+        <div class="brand-mark"><b>ÓRBITA</b> · IMPACTO</div>
+        <div class="slide-counter">11 / 13</div>
+
+        <div class="head-row">
+          <div class="section-heading">
+            <div class="eyebrow mono animate delay-1">Piloto sintético · 6 meses · 3.408 clientes acionados</div>
+            <h2 class="animate delay-2">R$ 2,16 protegidos <span class="accent-text">por real investido</span></h2>
+          </div>
+          <div class="tag-synth animate delay-2">Base sintética · efeitos supostos</div>
+        </div>
+
+        <div class="stats-grid cols-3">
+          <div class="stat-card animate delay-1">
+            <div class="stat-label mono">Conservador</div>
+            <div class="stat-value neg">−0,06</div>
+            <p class="stat-note">ROI. Protege R$ 119 mil; custa R$ 127 mil. Não se paga.</p>
+          </div>
+          <div class="stat-card accent animate delay-2">
+            <div class="stat-label mono">Base</div>
+            <div class="stat-value">1,16</div>
+            <p class="stat-note">ROI. Protege R$ 397 mil; custa R$ 184 mil.</p>
+          </div>
+          <div class="stat-card animate delay-3">
+            <div class="stat-label mono">Otimista</div>
+            <div class="stat-value pos">2,47</div>
+            <p class="stat-note">ROI. Protege R$ 835 mil; custa R$ 241 mil.</p>
+          </div>
+        </div>
+
+        <div class="source">
+          ROI = (receita protegida − custo) ÷ custo. Cenários variam o efeito das ações (0,5× / 1× / 1,5× do suposto) e a aceitação (30% / 50% / 70%).
+          Efeitos supostos, sem experimento (premissas P-17 e P-19). Detalhe em docs/BUSINESS_CASE.md.
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 · Próximos passos -->
+    <section class="slide timeline-slide">
+      <div class="slide-inner">
+        <div class="brand-mark"><b>ÓRBITA</b> · PRÓXIMOS PASSOS</div>
+        <div class="slide-counter">12 / 13</div>
+
+        <div class="section-heading">
+          <div class="eyebrow mono animate delay-1">O que pedimos</div>
+          <h2 class="animate delay-2">Três passos para <span class="accent-text">provar o efeito</span></h2>
+        </div>
+
+        <div class="timeline">
+          <div class="timeline-item animate delay-1">
+            <div class="timeline-dot"></div>
+            <div class="timeline-copy">
+              <div class="mono accent-2-text">Passo 01</div>
+              <h3>Piloto de 90 dias</h3>
+              <p>Com grupo de controle, para medir o efeito real.</p>
+            </div>
+          </div>
+          <div class="timeline-item animate delay-2">
+            <div class="timeline-dot"></div>
+            <div class="timeline-copy">
+              <div class="mono accent-2-text">Passo 02</div>
+              <h3>Tabelas reais no Snowflake</h3>
+              <p>Plugar clientes reais nos contratos já testados.</p>
+            </div>
+          </div>
+          <div class="timeline-item animate delay-3">
+            <div class="timeline-dot"></div>
+            <div class="timeline-copy">
+              <div class="mono accent-2-text">Passo 03</div>
+              <h3>Validar os benefícios</h3>
+              <p>Regras conferidas pelo time do Azul Fidelidade.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 · Encerramento -->
+    <section class="slide closing-slide">
+      <div class="orbit" aria-hidden="true"></div>
+      <div class="slide-inner">
+        <div class="slide-counter">13 / 13</div>
+
+        <div class="closing-content">
+          <div class="eyebrow mono animate delay-1">ÓRBITA · Radar de Ameaças</div>
+          <h2 class="animate delay-2">O radar já funciona. <span class="accent-text">Falta provar o efeito.</span></h2>
+          <p class="subtitle animate delay-3">
+            Dado público, explicação em português e uma pessoa aprovando cada ação.
+          </p>
+
+          <div class="cta-row animate delay-4">
+            <span class="btn btn-primary">Piloto de 90 dias</span>
+            <span class="btn btn-secondary">Limitações em docs/LIMITACOES.md</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    const dotsContainer = document.querySelector('.dot-nav');
+
+    function scrollToSlide(index) {
+      const clamped = Math.max(0, Math.min(index, slides.length - 1));
+      slides[clamped].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function buildDots() {
+      slides.forEach((slide, index) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('aria-label', `Ir para o slide ${index + 1}`);
+        btn.addEventListener('click', () => scrollToSlide(index));
+        dotsContainer.appendChild(btn);
+      });
+    }
+
+    function setActiveDot(index) {
+      dotsContainer.querySelectorAll('button').forEach((dot, i) => {
+        dot.classList.toggle('active', i === index);
+      });
+    }
+
+    const slideObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) setActiveDot(slides.indexOf(entry.target));
+      });
+    }, { threshold: 0.6 });
+
+    const animationObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in');
+          animationObserver.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.2 });
+
+    slides.forEach(slide => slideObserver.observe(slide));
+    document.querySelectorAll('.animate').forEach(el => animationObserver.observe(el));
+
+    // Na impressão (salvar como PDF) todos os elementos aparecem, mesmo os que ainda não animaram.
+    window.addEventListener('beforeprint', () => {
+      document.querySelectorAll('.animate').forEach(el => el.classList.add('in'));
+    });
+
+    function getCurrentSlideIndex() {
+      let closestIndex = 0;
+      let closestDistance = Infinity;
+      slides.forEach((slide, index) => {
+        const distance = Math.abs(slide.getBoundingClientRect().top);
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestIndex = index;
+        }
+      });
+      return closestIndex;
+    }
+
+    document.addEventListener('keydown', (event) => {
+      const currentIndex = getCurrentSlideIndex();
+      if (['ArrowDown', 'ArrowRight', 'PageDown', ' '].includes(event.key)) {
+        event.preventDefault();
+        scrollToSlide(currentIndex + 1);
+      }
+      if (['ArrowUp', 'ArrowLeft', 'PageUp'].includes(event.key)) {
+        event.preventDefault();
+        scrollToSlide(currentIndex - 1);
+      }
+      if (event.key === 'Home') { event.preventDefault(); scrollToSlide(0); }
+      if (event.key === 'End') { event.preventDefault(); scrollToSlide(slides.length - 1); }
+    });
+
+    buildDots();
+    setActiveDot(0);
+  </script>
+</body>
+</html>
